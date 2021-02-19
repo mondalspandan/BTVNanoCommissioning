@@ -175,10 +175,9 @@ class NanoProcessor(processor.ProcessorABC):
 
         # Per jet : https://twiki.cern.ch/twiki/bin/viewauth/CMS/PileupJetID
         jet_eta    = (abs(selev.Jet.eta) <= 2.4)
-        jet_pt     = selev.Jet.pt < 50 
-        jet_pu     = selev.Jet.puId > 6 #pass loose, medium, tight
-        jet_id     = selev.Jet.jetId < 6  #pass tight, fail tightlepveto
-        jet_level  = jet_pu & jet_id & jet_eta & jet_pt
+        jet_pt     = selev.Jet.pt > 25 
+        jet_pu     = selev.Jet.puId > 6
+        jet_level  = jet_pu & jet_eta & jet_pt
         
         # b-tag twiki : https://twiki.cern.ch/twiki/bin/viewauth/CMS/BtagRecommendation102X
         bjet_disc  = selev.Jet.btagDeepB > 0.7264 # L=0.0494, M=0.2770, T=0.7264
