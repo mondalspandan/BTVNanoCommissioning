@@ -137,6 +137,11 @@ python runner.py --workflow ctag_ttdilep_sf --json ctag_DY_mu_PFNano.json
 </p>
 </details>
 
+
+### Fatjet taggers
+
+More information in this [readme page](docs/README_fatjet_tagger.md).
+
 ### Validation - check different campaigns
 
 <details><summary>details</summary>

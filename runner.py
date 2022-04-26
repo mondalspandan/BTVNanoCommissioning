@@ -12,6 +12,8 @@ from coffea.nanoevents import NanoEventsFactory
 from coffea.util import load, save
 from coffea import processor
 
+from utils.Configurator import Configurator
+
 def validate(file):
     try:
         fin = uproot.open(file)
@@ -41,18 +43,19 @@ def get_main_parser():
                         dest='workflow',
                         choices=['ttcom', 'ttdilep_sf','ttsemilep_sf','ctag_jec','dilep_jec','ctag_Wc_sf','ctag_DY_sf','ctag_ttdilep_sf','ctag_ttsemilep_sf','ettdilep_sf','ettsemilep_sf','ctag_jec','dilep_jec','ectag_Wc_sf','ectag_DY_sf','ectag_ttdilep_sf','ectag_ttsemilep_sf','emctag_ttdilep_sf','ttdilep_nosf'],
                         help='Which processor to run',
-                        required=True)
+                        )
     parser.add_argument('-o', '--output', default=r'hists.coffea', help='Output histogram filename (default: %(default)s)')
     parser.add_argument('--samples', '--json', dest='samplejson', default='dummy_samples.json',
                         help='JSON file containing dataset and file locations (default: %(default)s)'
                         )
+    parser.add_argument('--cfg', default="", help='Config file with parameters specific to the current run')
 
     # Scale out
-    parser.add_argument('--executor', 
+    parser.add_argument('--executor',
                         choices=[
-                            'iterative', 'futures', 'parsl/slurm', 'parsl/condor', 
+                            'iterative', 'futures', 'parsl/slurm', 'parsl/condor',
                             'dask/condor', 'dask/slurm', 'dask/lpc', 'dask/lxplus', 'dask/casa',
-                        ], 
+                        ],
                         default='futures',
                         help='The type of executor to use (default: %(default)s). Other options can be implemented. '
                              'For example see https://parsl.readthedocs.io/en/stable/userguide/configuring.html'
@@ -86,120 +89,130 @@ def get_main_parser():
 if __name__ == '__main__':
     parser = get_main_parser()
     args = parser.parse_args()
-    if args.output == parser.get_default('output'):
-        index = args.samplejson.rfind('/')+1
-        sample_json = args.samplejson[index:]
-        args.output = f'hists_{args.workflow}_{(sample_json).rstrip(".json")}.coffea'
 
+    #### This assumes that there is a python file with all the configuration needed
+    if args.cfg:
+        config = Configurator(args.cfg)
+        args.executor = config.run_options['executor']
+        sample_dict = config.fileset
+        processor_instance = config.processor_instance
 
-        # load dataset
-    with open(args.samplejson) as f:
-        sample_dict = json.load(f)
-    for key in sample_dict.keys():
-        sample_dict[key] = sample_dict[key][:args.limit]
-    if args.executor == 'dask/casa':
-        for key in sample_dict.keys():
-            sample_dict[key] = [path.replace('xrootd-cms.infn.it/', 'xcache') for path in sample_dict[key]]
-
-    # For debugging
-    if args.only is not None:
-        if args.only in sample_dict.keys():  # is dataset
-            sample_dict = dict([(args.only, sample_dict[args.only])])
-        if "*" in args.only: # wildcard for datasets
-            _new_dict = {}
-            print("Will only proces the following datasets:")
-            for k, v in sample_dict.items():
-                if k.lstrip("/").startswith(args.only.rstrip("*")):
-                    print("    ", k)
-                    _new_dict[k] = v
-            sample_dict = _new_dict
-        else:  # is file
-            for key in sample_dict.keys():
-                if args.only in sample_dict[key]:
-                    sample_dict = dict([(key, [args.only])])
-
-
-    # Scan if files can be opened
-    if args.validate:
-        start = time.time()
-        from p_tqdm import p_map
-        all_invalid = []
-        for sample in sample_dict.keys():
-            _rmap = p_map(validate, sample_dict[sample], num_cpus=args.workers,
-                      desc=f'Validating {sample[:20]}...')
-            _results = list(_rmap)
-            counts = np.sum([r for r in _results if np.isreal(r)])
-            all_invalid += [r for r in _results if type(r) == str]
-            print("Events:", np.sum(counts))
-        print("Bad files:")
-        for fi in all_invalid:
-            print(f"  {fi}")
-        end = time.time()
-        print("TIME:", time.strftime("%H:%M:%S", time.gmtime(end-start)))
-        if input("Remove bad files? (y/n)") == "y":
-            print("Removing:")
-            for fi in all_invalid:
-                print(f"Removing: {fi}")
-                os.system(f'rm {fi}')
-        sys.exit(0)
-
-    # load workflow
-    if args.workflow == "ttcom":
-        from workflows.ttbar_validation import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ttdilep_sf":
-        from workflows.ttdilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "validation":
-        from workflows.validation import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ttsemilep_sf":
-        from workflows.ttsemilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ettdilep_sf":
-        from workflows.e_ttdilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ettsemilep_sf":
-        from workflows.e_ttsemilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_jec":
-        from workflows.ctag_valid_jec import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "dilep_jec":
-        from workflows.dilep_valid_jec import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_Wc_sf":
-        from workflows.ctag_Wc_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ectag_Wc_sf":
-        from workflows.ctag_eWc_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_DY_sf":
-        from workflows.ctag_DY_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ectag_DY_sf":
-        from workflows.ctag_eDY_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "emctag_ttdilep_sf":
-        from workflows.ctag_emdileptt_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_ttdilep_sf":
-        from workflows.ctag_dileptt_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ectag_ttdilep_sf":
-        from workflows.ctag_edileptt_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_ttsemilep_sf":
-        from workflows.ctag_semileptt_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()        
-    elif args.workflow == "ectag_ttsemilep_sf":
-        from workflows.ctag_ettsemilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()        
-    # elif args.workflow == "fattag":
-    #     from workflows.fatjet_tagger import NanoProcessor
-    #     processor_instance = NanoProcessor()
+    ### This assumes that all the configuration is passed from the command line
     else:
-        raise NotImplemented
+        if args.output == parser.get_default('output'):
+            index = args.samplejson.rfind('/')+1
+            sample_json = args.samplejson[index:]
+            args.output = f'hists_{args.workflow}_{(sample_json).rstrip(".json")}.coffea'
+
+
+            # load dataset
+        with open(args.samplejson) as f:
+            sample_dict = json.load(f)
+        for key in sample_dict.keys():
+            sample_dict[key] = sample_dict[key][:args.limit]
+        if args.executor == 'dask/casa':
+            for key in sample_dict.keys():
+                sample_dict[key] = [path.replace('xrootd-cms.infn.it/', 'xcache') for path in sample_dict[key]]
+
+        # For debugging
+        if args.only is not None:
+            if args.only in sample_dict.keys():  # is dataset
+                sample_dict = dict([(args.only, sample_dict[args.only])])
+            if "*" in args.only: # wildcard for datasets
+                _new_dict = {}
+                print("Will only proces the following datasets:")
+                for k, v in sample_dict.items():
+                    if k.lstrip("/").startswith(args.only.rstrip("*")):
+                        print("    ", k)
+                        _new_dict[k] = v
+                sample_dict = _new_dict
+            else:  # is file
+                for key in sample_dict.keys():
+                    if args.only in sample_dict[key]:
+                        sample_dict = dict([(key, [args.only])])
+
+
+        # Scan if files can be opened
+        if args.validate:
+            start = time.time()
+            from p_tqdm import p_map
+            all_invalid = []
+            for sample in sample_dict.keys():
+                _rmap = p_map(validate, sample_dict[sample], num_cpus=args.workers,
+                          desc=f'Validating {sample[:20]}...')
+                _results = list(_rmap)
+                counts = np.sum([r for r in _results if np.isreal(r)])
+                all_invalid += [r for r in _results if type(r) == str]
+                print("Events:", np.sum(counts))
+            print("Bad files:")
+            for fi in all_invalid:
+                print(f"  {fi}")
+            end = time.time()
+            print("TIME:", time.strftime("%H:%M:%S", time.gmtime(end-start)))
+            if input("Remove bad files? (y/n)") == "y":
+                print("Removing:")
+                for fi in all_invalid:
+                    print(f"Removing: {fi}")
+                    os.system(f'rm {fi}')
+            sys.exit(0)
+
+        # load workflow
+        if args.workflow == "ttcom":
+            from workflows.ttbar_validation import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ttdilep_sf":
+            from workflows.ttdilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "validation":
+            from workflows.validation import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ttsemilep_sf":
+            from workflows.ttsemilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ettdilep_sf":
+            from workflows.e_ttdilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ettsemilep_sf":
+            from workflows.e_ttsemilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_jec":
+            from workflows.ctag_valid_jec import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "dilep_jec":
+            from workflows.dilep_valid_jec import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_Wc_sf":
+            from workflows.ctag_Wc_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ectag_Wc_sf":
+            from workflows.ctag_eWc_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_DY_sf":
+            from workflows.ctag_DY_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ectag_DY_sf":
+            from workflows.ctag_eDY_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "emctag_ttdilep_sf":
+            from workflows.ctag_emdileptt_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_ttdilep_sf":
+            from workflows.ctag_dileptt_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ectag_ttdilep_sf":
+            from workflows.ctag_edileptt_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_ttsemilep_sf":
+            from workflows.ctag_semileptt_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ectag_ttsemilep_sf":
+            from workflows.ctag_ettsemilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        # elif args.workflow == "fattag":
+        #     from workflows.fatjet_tagger import NanoProcessor
+        #     processor_instance = NanoProcessor()
+        else:
+            raise NotImplemented
 
     if args.executor not in ['futures', 'iterative', 'dask/lpc', 'dask/casa']:
         """
@@ -315,7 +328,7 @@ if __name__ == '__main__':
         if 'lpc' in args.executor:
             env_extra = [
                 f"export PYTHONPATH=$PYTHONPATH:{os.getcwd()}",
-            ] 
+            ]
             from lpcjobqueue import LPCCondorCluster
             cluster = LPCCondorCluster(
                 transfer_input_files='/srv/workflows/',
@@ -360,12 +373,12 @@ if __name__ == '__main__':
             )
         elif 'condor' in args.executor:
             cluster = HTCondorCluster(
-                 cores=args.workers, 
-                 memory='4GB', 
-                 disk='4GB', 
+                 cores=args.workers,
+                 memory='4GB',
+                 disk='4GB',
                  env_extra=env_extra,
             )
-        
+
         if args.executor == 'dask/casa':
             client = Client("tls://localhost:8786")
             import shutil
