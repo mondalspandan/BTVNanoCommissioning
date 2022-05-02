@@ -30,6 +30,10 @@ cfg =  {
         "skipbadfiles" : None,
         "voms"         : None,
         "limit"        : 2,
+        "mem_per_worker" : None,
+        "partition"    : 'standard',
+        "exclusive"    : True,
+        "walltime"     : "12:00:00",
     },
 
     # Processor parameters

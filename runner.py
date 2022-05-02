@@ -76,6 +76,9 @@ def get_main_parser():
     parser.add_argument('--voms', default=None, type=str,
                         help='Path to voms proxy, accessible to worker nodes. By default a copy will be made to $HOME.'
                         )
+    parser.add_argument('--mem_per_worker', default=None, type=int, help='GB of memory required per worker.')
+    parser.add_argument('--partition', default='all', type=str, help='Slurm partition to request blocks from.')
+    parser.add_argument('--walltime', default='00:120:00', type=str, help='Walltime requested per block in HH:MM:SS.')
     # Debugging
     parser.add_argument('--validate', action='store_true', help='Do not process, just check all files are accessible')
     parser.add_argument('--skipbadfiles', action='store_true', help='Skip bad files.')
@@ -93,9 +96,21 @@ if __name__ == '__main__':
     #### This assumes that there is a python file with all the configuration needed
     if args.cfg:
         config = Configurator(args.cfg)
+
+        ### these options are included for back-compatibility
         args.executor = config.run_options['executor']
         sample_dict = config.fileset
         processor_instance = config.processor_instance
+        args.skipbadfiles = config.run_options['skipbadfiles']
+        args.workers = config.run_options['workers']
+        args.chunk = config.run_options['chunk']
+        args.max = config.run_options['max']
+        args.voms = config.run_options['voms']
+        args.mem_per_worker = config.run_options['mem_per_worker']
+        args.scaleout = config.run_options['scaleout']
+        args.partition = config.run_options['partition']
+        args.walltime = config.run_options['walltime']
+
 
     ### This assumes that all the configuration is passed from the command line
     else:
@@ -273,14 +288,16 @@ if __name__ == '__main__':
                         label="coffea_parsl_slurm",
                         address=address_by_hostname(),
                         prefetch_capacity=0,
+                        mem_per_worker=args.mem_per_worker,
                         provider=SlurmProvider(
                             channel=LocalChannel(script_dir='logs_parsl'),
                             launcher=SrunLauncher(),
                             max_blocks=(args.scaleout) + 10,
                             init_blocks=args.scaleout,
-                            partition='all',
+                            partition=args.partition,
                             worker_init="\n".join(env_extra),
-                            walltime='00:120:00'
+                            walltime=args.walltime,
+                            exclusive=config.run_options['exclusive'],
                         ),
                     )
                 ],
