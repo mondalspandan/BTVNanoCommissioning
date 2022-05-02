@@ -130,53 +130,53 @@ jecTarFiles = {
     'EOY' : {
         '2016' :
             [
-            '/data/UL16/JEC_JERSF/Summer16_07Aug2017BCD_V11_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Summer16_07Aug2017EF_V11_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Summer16_07Aug2017GH_V11_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Summer16_07Aug2017_V11_MC.tar.gz',
+            '/data/JME/UL16/Summer16_07Aug2017BCD_V11_DATA.tar.gz',
+            '/data/JME/UL16/Summer16_07Aug2017EF_V11_DATA.tar.gz',
+            '/data/JME/UL16/Summer16_07Aug2017GH_V11_DATA.tar.gz',
+            '/data/JME/UL16/Summer16_07Aug2017_V11_MC.tar.gz',
             ],
         '2017' :
             [
-            '/data/UL16/JEC_JERSF/Fall17_17Nov2017B_V32_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Fall17_17Nov2017C_V32_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Fall17_17Nov2017DE_V32_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Fall17_17Nov2017F_V32_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Fall17_17Nov2017_V32_MC.tar.gz',
+            '/data/JME/UL16/Fall17_17Nov2017B_V32_DATA.tar.gz',
+            '/data/JME/UL16/Fall17_17Nov2017C_V32_DATA.tar.gz',
+            '/data/JME/UL16/Fall17_17Nov2017DE_V32_DATA.tar.gz',
+            '/data/JME/UL16/Fall17_17Nov2017F_V32_DATA.tar.gz',
+            '/data/JME/UL16/Fall17_17Nov2017_V32_MC.tar.gz',
             ],
         '2018' :
             [
-            '/data/UL16/JEC_JERSF/Autumn18_RunA_V19_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Autumn18_RunB_V19_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Autumn18_RunC_V19_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Autumn18_RunD_V19_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Autumn18_V19_MC.tar.gz',
+            '/data/JME/UL16/Autumn18_RunA_V19_DATA.tar.gz',
+            '/data/JME/UL16/Autumn18_RunB_V19_DATA.tar.gz',
+            '/data/JME/UL16/Autumn18_RunC_V19_DATA.tar.gz',
+            '/data/JME/UL16/Autumn18_RunD_V19_DATA.tar.gz',
+            '/data/JME/UL16/Autumn18_V19_MC.tar.gz',
             ]
     },
     'UL' : {
         '2016_PreVFP' : [
-            '/data/UL16/JEC_JERSF/Summer19UL16APV_V7_MC.tar.gz',
-            '/data/UL16/JEC_JERSF/Summer19UL16APV_RunBCD_V7_DATA.tar.gz',
-            '/data/UL16/JEC_JERSF/Summer19UL16APV_RunEF_V7_DATA.tar.gz',
+            '/data/JME/UL16/Summer19UL16APV_V7_MC.tar.gz',
+            '/data/JME/UL16/Summer19UL16APV_RunBCD_V7_DATA.tar.gz',
+            '/data/JME/UL16/Summer19UL16APV_RunEF_V7_DATA.tar.gz',
             ],
         '2016_PostVFP' : [
-            '/data/UL16/JEC_JERSF/Summer19UL16_V7_MC.tar.gz',
-            '/data/UL16/JEC_JERSF/Summer19UL16_RunFGH_V7_DATA.tar.gz',
+            '/data/JME/UL16/Summer19UL16_V7_MC.tar.gz',
+            '/data/JME/UL16/Summer19UL16_RunFGH_V7_DATA.tar.gz',
             ],
         '2017' :
             [
-            '/data/UL17/JEC_JERSF/Summer19UL17_RunB_V5_DATA.tar.gz',
-            '/data/UL17/JEC_JERSF/Summer19UL17_RunC_V5_DATA.tar.gz',
-            '/data/UL17/JEC_JERSF/Summer19UL17_RunD_V5_DATA.tar.gz',
-            '/data/UL17/JEC_JERSF/Summer19UL17_RunE_V5_DATA.tar.gz',
-            '/data/UL17/JEC_JERSF/Summer19UL17_RunF_V5_DATA.tar.gz',
+            '/data/JME/UL17/Summer19UL17_RunB_V5_DATA.tar.gz',
+            '/data/JME/UL17/Summer19UL17_RunC_V5_DATA.tar.gz',
+            '/data/JME/UL17/Summer19UL17_RunD_V5_DATA.tar.gz',
+            '/data/JME/UL17/Summer19UL17_RunE_V5_DATA.tar.gz',
+            '/data/JME/UL17/Summer19UL17_RunF_V5_DATA.tar.gz',
             ],
         '2018' :
             [
-            '/data/UL18/JEC_JERSF/Summer19UL18_RunA_V5_DATA.tar.gz',
-            '/data/UL18/JEC_JERSF/Summer19UL18_RunB_V5_DATA.tar.gz',
-            '/data/UL18/JEC_JERSF/Summer19UL18_RunC_V5_DATA.tar.gz',
-            '/data/UL18/JEC_JERSF/Summer19UL18_RunD_V5_DATA.tar.gz',
-            '/data/UL18/JEC_JERSF/Summer19UL18_V5_MC.tar.gz',
+            '/data/JME/UL18/Summer19UL18_RunA_V5_DATA.tar.gz',
+            '/data/JME/UL18/Summer19UL18_RunB_V5_DATA.tar.gz',
+            '/data/JME/UL18/Summer19UL18_RunC_V5_DATA.tar.gz',
+            '/data/JME/UL18/Summer19UL18_RunD_V5_DATA.tar.gz',
+            '/data/JME/UL18/Summer19UL18_V5_MC.tar.gz',
             ]
     }
 }
