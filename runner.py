@@ -165,92 +165,93 @@ if __name__ == '__main__':
                 os.system(f'rm {fi}')
         sys.exit(0)
 
-    # load workflow
-    if args.workflow == "ttcom":
-        from workflows.ttbar_validation import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ttdilep_sf":
-        from workflows.ttdilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "validation":
-        from workflows.validation import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ttsemilep_sf":
-        from workflows.ttsemilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ettdilep_sf":
-        from workflows.e_ttdilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ettsemilep_sf":
-        from workflows.e_ttsemilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_jec":
-        from workflows.ctag_valid_jec import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "dilep_jec":
-        from workflows.ttdilep_valid_jec import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "semilep_jec":
-        from workflows.ttsemilep_valid_jec import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_Wc_sf":
-        from workflows.ctag_Wc_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ectag_Wc_sf":
-        from workflows.ctag_eWc_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_DY_sf":
-        from workflows.ctag_DY_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ectag_DY_sf":
-        from workflows.ctag_eDY_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "emctag_ttdilep_sf":
-        from workflows.ctag_emdileptt_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_ttdilep_sf":
-        from workflows.ctag_dileptt_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ectag_ttdilep_sf":
-        from workflows.ctag_edileptt_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ctag_ttsemilep_sf":
-        from workflows.ctag_semileptt_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    elif args.workflow == "ectag_ttsemilep_sf":
-        from workflows.ctag_ettsemilep_valid_sf import NanoProcessor
-        processor_instance = NanoProcessor()
-    # elif args.workflow == "fattag":
-    #     from workflows.fatjet_tagger import NanoProcessor
-    #     processor_instance = NanoProcessor()
-    else:
-        raise NotImplemented
 
-    if args.executor not in ['futures', 'iterative', 'dask/lpc', 'dask/casa']:
-        """
-        dask/parsl needs to export x509 to read over xrootd
-        dask/lpc uses custom jobqueue provider that handles x509
-        """
-        if args.voms is not None:
-            _x509_path = args.voms
+        # load workflow
+        if args.workflow == "ttcom":
+            from workflows.ttbar_validation import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ttdilep_sf":
+            from workflows.ttdilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "validation":
+            from workflows.validation import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ttsemilep_sf":
+            from workflows.ttsemilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ettdilep_sf":
+            from workflows.e_ttdilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ettsemilep_sf":
+            from workflows.e_ttsemilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_jec":
+            from workflows.ctag_valid_jec import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "dilep_jec":
+            from workflows.ttdilep_valid_jec import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "semilep_jec":
+            from workflows.ttsemilep_valid_jec import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_Wc_sf":
+            from workflows.ctag_Wc_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ectag_Wc_sf":
+            from workflows.ctag_eWc_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_DY_sf":
+            from workflows.ctag_DY_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ectag_DY_sf":
+            from workflows.ctag_eDY_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "emctag_ttdilep_sf":
+            from workflows.ctag_emdileptt_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_ttdilep_sf":
+            from workflows.ctag_dileptt_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ectag_ttdilep_sf":
+            from workflows.ctag_edileptt_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ctag_ttsemilep_sf":
+            from workflows.ctag_semileptt_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        elif args.workflow == "ectag_ttsemilep_sf":
+            from workflows.ctag_ettsemilep_valid_sf import NanoProcessor
+            processor_instance = NanoProcessor()
+        # elif args.workflow == "fattag":
+        #     from workflows.fatjet_tagger import NanoProcessor
+        #     processor_instance = NanoProcessor()
         else:
-            try:
-                _x509_localpath = [l for l in os.popen('voms-proxy-info').read().split("\n") if l.startswith('path')][0].split(":")[-1].strip()
-            except:
-                raise RuntimeError("x509 proxy could not be parsed, try creating it with 'voms-proxy-init'")
-            _x509_path = os.environ['HOME'] + f'/.{_x509_localpath.split("/")[-1]}'
-            os.system(f'cp {_x509_localpath} {_x509_path}')
+            raise NotImplemented
 
-        env_extra = [
-            'export XRD_RUNFORKHANDLER=1',
-            f'export X509_USER_PROXY={_x509_path}',
-            f'export X509_CERT_DIR={os.environ["X509_CERT_DIR"]}',
-            f'export PYTHONPATH=$PYTHONPATH:{os.getcwd()}',
-        ]
-        condor_extra = [
-            f'source {os.environ["HOME"]}/.bashrc',
-            f'source activate coffea'
-        ]
+        if args.executor not in ['futures', 'iterative', 'dask/lpc', 'dask/casa']:
+            """
+            dask/parsl needs to export x509 to read over xrootd
+            dask/lpc uses custom jobqueue provider that handles x509
+            """
+            if args.voms is not None:
+                _x509_path = args.voms
+            else:
+                try:
+                    _x509_localpath = [l for l in os.popen('voms-proxy-info').read().split("\n") if l.startswith('path')][0].split(":")[-1].strip()
+                except:
+                    raise RuntimeError("x509 proxy could not be parsed, try creating it with 'voms-proxy-init'")
+                _x509_path = os.environ['HOME'] + f'/.{_x509_localpath.split("/")[-1]}'
+                os.system(f'cp {_x509_localpath} {_x509_path}')
+
+            env_extra = [
+                'export XRD_RUNFORKHANDLER=1',
+                f'export X509_USER_PROXY={_x509_path}',
+                f'export X509_CERT_DIR={os.environ["X509_CERT_DIR"]}',
+                f'export PYTHONPATH=$PYTHONPATH:{os.getcwd()}',
+            ]
+            condor_extra = [
+                f'source {os.environ["HOME"]}/.bashrc',
+                f'source activate coffea'
+            ]
 
     #########
     # Execute
@@ -316,7 +317,7 @@ if __name__ == '__main__':
                             walltime="00:20:00",
                         ),
                     )
-                ]
+                ],
                 retries=20,
             )
         else:

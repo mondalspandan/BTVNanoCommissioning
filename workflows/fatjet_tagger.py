@@ -1,4 +1,5 @@
 import os
+import copy
 import tarfile
 import logging
 
@@ -233,19 +234,20 @@ class NanoProcessor(processor.ProcessorABC):
             self._VFP = self.events.metadata["VFP"]
 
     def load_era_specific_parameters(self):
-        # JEC files
-        # Correction files in https://twiki.cern.ch/twiki/bin/viewauth/CMS/JECDataMC
-        self.jesInputFilePath = os.getcwd()+'/tmp/'
-        if not os.path.exists(self.jesInputFilePath):
-            os.makedirs(self.jesInputFilePath)
-        if (self._campaign == 'UL') & (self._year == '2016'):
-            files = jecTarFiles[self._campaign][f"{self._year}_{self._VFP}"]
-        else:
-            files = jecTarFiles[self._campaign][self._year]
-        for itar in files:
-            jecFile = os.getcwd()+itar
-            jesArchive = tarfile.open( jecFile, "r:gz")
-            jesArchive.extractall(self.jesInputFilePath)
+        # JEC files in EOY need to be untar, in UL we read it from /cvmfs/
+        if not self._campaign.startswith('UL'):
+            # Correction files in https://twiki.cern.ch/twiki/bin/viewauth/CMS/JECDataMC
+            self.jesInputFilePath = os.getcwd()+'/tmp/'
+            if not os.path.exists(self.jesInputFilePath):
+                os.makedirs(self.jesInputFilePath)
+            if (self._campaign == 'UL') & (self._year == '2016'):
+                files = jecTarFiles[self._campaign][f"{self._year}_{self._VFP}"]
+            else:
+                files = jecTarFiles[self._campaign][self._year]
+            for itar in files:
+                jecFile = os.getcwd()+itar
+                jesArchive = tarfile.open( jecFile, "r:gz")
+                jesArchive.extractall(self.jesInputFilePath)
 
         # PU files
         self.puFile    = self.cfg['puFile']
@@ -312,45 +314,66 @@ class NanoProcessor(processor.ProcessorABC):
     def applyJEC( self, jets, fixedGridRhoFastjetAll, events_cache, typeJet, isData, JECversion ):
         '''Based on https://coffeateam.github.io/coffea/notebooks/applying_corrections.html#Applying-energy-scale-transformations-to-Jets'''
 
-        ext = lookup_tools.extractor()
-        JECtypes = [ 'L1FastJet', 'L2Relative', 'L2Residual', 'L3Absolute', 'L2L3Residual' ]
-        jec_stack_names = [ JECversion+'_'+k+'_'+typeJet for k in JECtypes ]
-        JECtypesfiles = [ '* * '+self.corrJECfolder+'/'+k+'.txt' for k in jec_stack_names ]
-        ext.add_weight_sets( JECtypesfiles )
-        ext.finalize()
-        evaluator = ext.make_evaluator()
-
-
-        jec_inputs = {name: evaluator[name] for name in jec_stack_names}
-        corrector = FactorizedJetCorrector( **jec_inputs )
-        for i in jec_inputs: logging.debug(i,'\n',evaluator[i])
-
-        jec_stack = JECStack(jec_inputs)
-        name_map = jec_stack.blank_name_map
-        name_map['JetPt'] = 'pt'
-        name_map['JetMass'] = 'mass'
-        name_map['JetEta'] = 'eta'
-        name_map['JetA'] = 'area'
-
         jets['pt_raw'] = (1 - jets['rawFactor']) * jets['pt']
         jets['mass_raw'] = (1 - jets['rawFactor']) * jets['mass']
         jets['rho'] = ak.broadcast_arrays(fixedGridRhoFastjetAll, jets.pt)[0]
-        name_map['ptRaw'] = 'pt_raw'
-        name_map['massRaw'] = 'mass_raw'
-        name_map['Rho'] = 'rho'
-        if not isData:
-            jets['pt_gen'] = ak.values_astype(ak.fill_none(jets.matched_gen.pt, 0), np.float32)
-            name_map['ptGenJet'] = 'pt_gen'
 
+        if self._campaign.startswith('UL'):
 
-        jet_factory = CorrectedJetsFactory(name_map, jec_stack)
-        corrected_jets = jet_factory.build(jets, lazy_cache=events_cache)
+            ##### JECs
+            #### example here: https://gitlab.cern.ch/cms-nanoAOD/jsonpog-integration/-/blob/master/examples/jercExample.py
+            jsonfile = 'jet_jerc.json.gz' if typeJet.startswith('AK4') else 'fatJet_jerc.json.gz'
+            JECfile = correctionlib.CorrectionSet.from_file(f'{self.corrJECfolder}{jsonfile}')
+            corr = JECfile.compound[f'{JECversion}_L1L2L3Res_{typeJet}']
+            # until correctionlib handles jagged data natively we have to flatten and unflatten
+            j, nj = ak.flatten(jets), ak.num(jets)
+            flatCorrFactor = corr.evaluate( np.array(j['area']), np.array(j['eta']), np.array(j['pt_raw']), np.array(j['rho']) )
+            corrFactor = ak.unflatten(flatCorrFactor, nj)
+
+            corrected_jets = copy.copy(jets)
+            corrected_jets['pt'] = jets['pt_raw']* corrFactor
+            corrected_jets['mass'] = jets['mass_raw']* corrFactor
+
+        else:
+
+            ext = lookup_tools.extractor()
+            JECtypes = [ 'L1FastJet', 'L2Relative', 'L2Residual', 'L3Absolute', 'L2L3Residual' ]
+            jec_stack_names = [ JECversion+'_'+k+'_'+typeJet for k in JECtypes ]
+            JECtypesfiles = [ '* * '+self.corrJECfolder+'/'+k+'.txt' for k in jec_stack_names ]
+            ext.add_weight_sets( JECtypesfiles )
+            ext.finalize()
+            evaluator = ext.make_evaluator()
+
+            jec_inputs = {name: evaluator[name] for name in jec_stack_names}
+            corrector = FactorizedJetCorrector( **jec_inputs )
+            for i in jec_inputs: logging.debug(i,'\n',evaluator[i])
+
+            jec_stack = JECStack(jec_inputs)
+            name_map = jec_stack.blank_name_map
+            name_map['JetPt'] = 'pt'
+            name_map['JetMass'] = 'mass'
+            name_map['JetEta'] = 'eta'
+            name_map['JetA'] = 'area'
+
+            name_map['ptRaw'] = 'pt_raw'
+            name_map['massRaw'] = 'mass_raw'
+            name_map['Rho'] = 'rho'
+            if not isData:
+                jets['pt_gen'] = ak.values_astype(ak.fill_none(jets.matched_gen.pt, 0), np.float32)
+                name_map['ptGenJet'] = 'pt_gen'
+
+            jet_factory = CorrectedJetsFactory(name_map, jec_stack)
+            corrected_jets = jet_factory.build(jets, lazy_cache=events_cache)
+
         logging.debug('starting columns:',ak.fields(jets))
         logging.debug('untransformed pt ratios',jets.pt/jets.pt_raw)
         logging.debug('untransformed mass ratios',jets.mass/jets.mass_raw)
         logging.debug('transformed pt ratios',corrected_jets.pt/corrected_jets.pt_raw)
         logging.debug('transformed mass ratios',corrected_jets.mass/corrected_jets.mass_raw)
         logging.debug('transformed columns:', ak.fields(corrected_jets))
+
+
+
         return corrected_jets
 
     def process(self, events):

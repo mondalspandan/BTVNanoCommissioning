@@ -11,8 +11,8 @@ cfg =  {
     'puJSON'   : 'Collisions16_UltraLegacy_goldenJSON',
     'nTrueFile' : '',
 
-    # JEC
-    "JECfolder": "tmp/",
+    # JECfolder: for EOY the files must be "tmp/" (the folder where the txt files are unzipped). In UL must be the folder in /cvmfs/
+    "JECfolder": "/cvmfs/cms.cern.ch/rsync/cms-nanoAOD/jsonpog-integration/POG/JME/2016preVFP_UL/",
 
     # Input and output files
     "workflow" : "fatjet_tagger",
@@ -29,7 +29,7 @@ cfg =  {
         "max"          : None,
         "skipbadfiles" : None,
         "voms"         : None,
-        "limit"        : 2,
+        "limit"        : 1,
         "mem_per_worker" : None,
         "partition"    : 'standard',
         "exclusive"    : True,
