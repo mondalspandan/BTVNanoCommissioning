@@ -1,4 +1,4 @@
-src/BTVNanoCommissioning/workflows/import gzip
+import gzip
 import pickle, os, sys, mplhep as hep, numpy as np
 import collections
 
