@@ -3,7 +3,7 @@ import pickle, os, sys, mplhep as hep, numpy as np
 import collections
 import re
 
-from matplotlib.pyplot import jet
+
 
 import coffea
 from coffea import processor

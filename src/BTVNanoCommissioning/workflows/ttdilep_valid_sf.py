@@ -1,7 +1,7 @@
 import pickle, os, sys, mplhep as hep, numpy as np
 import collections
 
-from matplotlib.pyplot import jet
+
 
 import coffea
 

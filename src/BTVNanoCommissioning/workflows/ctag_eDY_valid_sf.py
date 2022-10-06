@@ -2,7 +2,6 @@ import gzip
 import pickle, os, sys, mplhep as hep, numpy as np
 import collections
 
-from matplotlib.pyplot import jet
 
 
 from coffea import processor

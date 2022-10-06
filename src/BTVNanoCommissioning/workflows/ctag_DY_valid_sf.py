@@ -1,8 +1,6 @@
-import gzip
+src/BTVNanoCommissioning/workflows/import gzip
 import pickle, os, sys, mplhep as hep, numpy as np
 import collections
-
-from matplotlib.pyplot import jet
 
 import coffea
 from coffea import processor

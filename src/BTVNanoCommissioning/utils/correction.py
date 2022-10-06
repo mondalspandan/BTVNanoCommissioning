@@ -130,6 +130,7 @@ def load_jetfactory(campaign, path):
     _jet_path = f"BTVNanoCommissioning.data.JME.{campaign}"
     with importlib.resources.path(_jet_path, path) as filename:
         with gzip.open(filename) as fin:
+            print(fin)
             jmestuff = cloudpickle.load(fin)
 
     jet_factory = jmestuff["jet_factory"]

@@ -1,5 +1,5 @@
 import collections
-from coffea import hist, processor
+from coffea import processor
 import numpy as np
 import awkward as ak
 from coffea.analysis_tools import Weights
