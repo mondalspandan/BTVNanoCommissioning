@@ -50,36 +50,39 @@ time = arrow.now().format("YY_MM_DD")
 if not os.path.isdir(f"plot/BTV/{arg.phase}_{arg.ext}_{time}/"):
     os.makedirs(f"plot/BTV/{arg.phase}_{arg.ext}_{time}/")
 if len(arg.output.split(",")) > 1:
-    output = {i.replace(".coffea",""): load(i) for i in arg.output.split(",")}
-    for out in output.keys():output[out] = scaleSumW(output[out], arg.lumi, getSumW(output[out]))
+    output = {i.replace(".coffea", ""): load(i) for i in arg.output.split(",")}
+    for out in output.keys():
+        output[out] = scaleSumW(output[out], arg.lumi, getSumW(output[out]))
 else:
     output = load(arg.output)
-    output = scaleSumW(output,arg.lumi,getSumW(output))
+    output = scaleSumW(output, arg.lumi, getSumW(output))
 mergemap = {}
-if "sumw" in output.keys(): 
+if "sumw" in output.keys():
     mergemap["data"] = [
-            m for m in output.keys() if "Run" in m or "data" in m or "Data" in m
-        ]
+        m for m in output.keys() if "Run" in m or "data" in m or "Data" in m
+    ]
     mergemap["mc"] = [
-            m
-            for m in output.keys()
-            if "Run" not in m and "data" not in m and "Data" not in m
-        ]
-else :
-    datalist=[]
-    mclist=[]
+        m
+        for m in output.keys()
+        if "Run" not in m and "data" not in m and "Data" not in m
+    ]
+else:
+    datalist = []
+    mclist = []
     for f in output.keys():
-        datalist.extend([
-            m for m in output[f].keys() if "Run" in m or "data" in m or "Data" in m
-        ])
-        mclist.extend([
-            m
-            for m in output[f].keys()
-            if "Run" not in m and "data" not in m and "Data" not in m
-        ])
+        datalist.extend(
+            [m for m in output[f].keys() if "Run" in m or "data" in m or "Data" in m]
+        )
+        mclist.extend(
+            [
+                m
+                for m in output[f].keys()
+                if "Run" not in m and "data" not in m and "Data" not in m
+            ]
+        )
     mergemap["mc"] = mclist
     mergemap["data"] = datalist
-        
+
 collated = collate(output, mergemap)
 if "Wc" in arg.phase:
     input_txt = "W+c"
@@ -165,6 +168,7 @@ for discr in arg.discr_list.split(","):
                             - collated["mc"][discr][{"syst": "SF", "flav": 4}].values()
                         ),
                         2,
+<<<<<<< HEAD
                     ),
                 )
             )
@@ -267,6 +271,110 @@ for discr in arg.discr_list.split(","):
             ax=ax,
         )
         
+=======
+                    ),
+                )
+            )
+            err_dn = np.sqrt(
+                np.add(
+                    np.power(err_dn, 2),
+                    np.power(
+                        2
+                        * (
+                            collated["mc"][discr][{"syst": "SF", "flav": 4}].values()
+                            - collated["mc"][discr][
+                                {"syst": "SFdn", "flav": 4}
+                            ].values()
+                        ),
+                        2,
+                    ),
+                )
+            )
+
+        hdata = collated["data"][discr][{"syst": "noSF", "flav": sum}]
+        ratio_up = ratio_uncertainty(err_up, hdata.values())
+        ratio_dn = ratio_uncertainty(err_dn, hdata.values())
+
+        hep.histplot(
+            [collated["mc"][discr][{"syst": "SF", "flav": i}] for i in range(4)],
+            stack=True,
+            label=["udsg", "pileup", "c", "b"],
+            histtype="fill",
+            yerr=True,
+            ax=ax,
+        )
+        hep.histplot(
+            collated["mc"][discr][{"syst": "noSF", "flav": sum}],
+            label=["w/o SF"],
+            color="tab:gray",
+            width=2,
+            yerr=True,
+            ax=ax,
+        )
+        hep.histplot(
+            hdata,
+            histtype="errorbar",
+            color="black",
+            label="Data",
+            yerr=True,
+            ax=ax,
+        )
+        rax.errorbar(
+            x=hdata.axes[0].centers,
+            y=hdata.values()
+            / collated["mc"][discr][{"syst": "SF", "flav": sum}].values(),
+            yerr=ratio_uncertainty(
+                hdata.values(),
+                collated["mc"][discr][{"syst": "SF", "flav": sum}].values(),
+            ),
+            color="k",
+            linestyle="none",
+            marker="o",
+            elinewidth=1,
+        )
+        rax.errorbar(
+            x=hdata.axes[0].centers,
+            y=hdata.values()
+            / collated["mc"][discr][{"syst": "noSF", "flav": sum}].values(),
+            yerr=ratio_uncertainty(
+                hdata.values(),
+                collated["mc"][discr][{"syst": "noSF", "flav": sum}].values(),
+            ),
+            color="tab:brown",
+            linestyle="none",
+            marker="o",
+            elinewidth=1,
+        )
+        stat_denom_unc = ratio_uncertainty(
+            hdata.values(),
+            collated["mc"][discr][{"syst": "noSF", "flav": sum}].values(),
+        )
+        ax.fill_between(
+            hdata.axes.edges,
+            np.ones(stat_denom_unc[0])
+            - np.r_[stat_denom_unc[0], stat_denom_unc[0, -1]],
+            np.ones(stat_denom_unc[0])
+            + np.r_[stat_denom_unc[1], stat_denom_unc[1, -1]],
+            {"facecolor": "tab:gray", "linewidth": 0},
+        )
+        ax.fill_between(
+            hdata.axes.edges,
+            np.ones(stat_denom_unc[0]) - np.r_[err_dn, err_dn[-1]],
+            np.ones(stat_denom_unc[0]) + np.r_[err_up, err_up[-1]],
+            {"facecolor": "tab:brown", "linewidth": 0},
+        )
+
+    elif "flav" in collated["mc"][discr].axes.name:
+        hep.histplot(
+            [collated["mc"][discr][{"flav": i}] for i in range(4)],
+            stack=True,
+            histtype="fill",
+            label=["udsg", "pileup", "c", "b"],
+            yerr=True,
+            ax=ax,
+        )
+
+>>>>>>> btv_upstream
         hep.histplot(
             collated["data"][discr][{"flav": sum}],
             histtype="errorbar",
@@ -308,7 +416,13 @@ for discr in arg.discr_list.split(","):
         rax.errorbar(
             x=collated["data"][discr].axes[0].centers,
             y=collated["data"][discr].values() / collated["mc"][discr].values(),
+<<<<<<< HEAD
             yerr=ratio_uncertainty(collated["data"][discr].values(), collated["mc"][discr].values()),
+=======
+            yerr=ratio_uncertainty(
+                collated["data"][discr].values(), collated["mc"][discr].values()
+            ),
+>>>>>>> btv_upstream
             color="k",
             linestyle="none",
             marker="o",

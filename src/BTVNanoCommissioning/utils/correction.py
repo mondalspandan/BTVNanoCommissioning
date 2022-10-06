@@ -248,7 +248,7 @@ def muSFs(mu, campaign, path):
     with contextlib.ExitStack() as stack:
         real_paths = [
             stack.enter_context(importlib.resources.path(_mu_path, f))
-            for f in path.values() 
+            for f in path.values()
         ]
         ext.add_weight_sets(
             [

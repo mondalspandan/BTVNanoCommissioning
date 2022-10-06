@@ -67,15 +67,17 @@ mergemap = {}
 time = arrow.now().format("YY_MM_DD")
 if not os.path.isdir(f"plot/BTV/{args.phase}_{args.ext}_{time}/"):
     os.makedirs(f"plot/BTV/{args.phase}_{args.ext}_{time}/")
-if "sumw" in output.keys(): 
-    mergemap[args.ref] = [m for m in output[f].keys() if args.ref == m]
-    for c in args.compared.split(","):mergemap[c] = [m for m in output[f].keys() if c == m]
-else :
-    reflist=[]
-    comparelist=[]
+if "sumw" in output.keys():
+    mergemap[args.ref] = [m for m in output.keys() if args.ref == m]
+    for c in args.compared.split(","):
+        mergemap[c] = [m for m in output.keys() if c == m]
+else:
+    reflist = []
+    comparelist = []
     for f in output.keys():
-        reflist.extend([m for m in output.keys() if args.ref == m])
-        for c in args.compared.split(","):comparelist.extend([m for m in output.keys() if c == m])
+        reflist.extend([m for m in output[f].keys() if args.ref == m])
+        for c in args.compared.split(","):
+            comparelist.extend([m for m in output[f].keys() if c == m])
     mergemap[args.ref] = reflist
     mergemap[c] = comparelist
 collated = collate(output, mergemap)
