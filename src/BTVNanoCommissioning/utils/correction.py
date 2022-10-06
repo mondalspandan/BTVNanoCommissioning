@@ -130,7 +130,6 @@ def load_jetfactory(campaign, path):
     _jet_path = f"BTVNanoCommissioning.data.JME.{campaign}"
     with importlib.resources.path(_jet_path, path) as filename:
         with gzip.open(filename) as fin:
-            print(fin)
             jmestuff = cloudpickle.load(fin)
 
     jet_factory = jmestuff["jet_factory"]
@@ -219,7 +218,7 @@ def eleSFs(ele, campaign, path):
     with contextlib.ExitStack() as stack:
         real_paths = [
             stack.enter_context(importlib.resources.path(_ele_path, f))
-            for f in path.values() 
+            for f in path.values()
         ]
         ext.add_weight_sets(
             [

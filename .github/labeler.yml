@@ -1,5 +1,5 @@
 CI:
-- .github/workflows/ctag_DY_workflow.yml
+- .github/workflows/*
 
 core:
 - src/BTVNanoCommissioning/*

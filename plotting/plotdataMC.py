@@ -168,110 +168,6 @@ for discr in arg.discr_list.split(","):
                             - collated["mc"][discr][{"syst": "SF", "flav": 4}].values()
                         ),
                         2,
-<<<<<<< HEAD
-                    ),
-                )
-            )
-            err_dn = np.sqrt(
-                np.add(
-                    np.power(err_dn, 2),
-                    np.power(
-                        2
-                        * (
-                            collated["mc"][discr][{"syst": "SF", "flav": 4}].values()
-                            - collated["mc"][discr][
-                                {"syst": "SFdn", "flav": 4}
-                            ].values()
-                        ),
-                        2,
-                    ),
-                )
-            )
-
-        hdata = collated["data"][discr][{"syst": "noSF", "flav": sum}]
-        ratio_up = ratio_uncertainty(err_up, hdata.values())
-        ratio_dn = ratio_uncertainty(err_dn, hdata.values())
-
-        hep.histplot(
-            [collated["mc"][discr][{"syst": "SF", "flav": i}] for i in range(4)],
-            stack=True,
-            label=["udsg", "pileup", "c", "b"],
-            histtype="fill",
-            yerr=True,
-            ax=ax,
-        )
-        hep.histplot(
-            collated["mc"][discr][{"syst": "noSF", "flav": sum}],
-            label=["w/o SF"],
-            color="tab:gray",
-            width=2,
-            yerr=True,
-            ax=ax,
-        )
-        hep.histplot(
-            hdata,
-            histtype="errorbar",
-            color="black",
-            label="Data",
-            yerr=True,
-            ax=ax,
-        )
-        rax.errorbar(
-            x=hdata.axes[0].centers,
-            y=hdata.values()
-            / collated["mc"][discr][{"syst": "SF", "flav": sum}].values(),
-            yerr=ratio_uncertainty(
-                hdata.values(),
-                collated["mc"][discr][{"syst": "SF", "flav": sum}].values(),
-            ),
-            color="k",
-            linestyle="none",
-            marker="o",
-            elinewidth=1,
-        )
-        rax.errorbar(
-            x=hdata.axes[0].centers,
-            y=hdata.values()
-            / collated["mc"][discr][{"syst": "noSF", "flav": sum}].values(),
-            yerr=ratio_uncertainty(
-                hdata.values(),
-                collated["mc"][discr][{"syst": "noSF", "flav": sum}].values(),
-            ),
-            color="tab:brown",
-            linestyle="none",
-            marker="o",
-            elinewidth=1,
-        )
-        stat_denom_unc = ratio_uncertainty(
-            hdata.values(),
-            collated["mc"][discr][{"syst": "noSF", "flav": sum}].values(),
-        )
-        ax.fill_between(
-            hdata.axes.edges,
-            np.ones(stat_denom_unc[0])
-            - np.r_[stat_denom_unc[0], stat_denom_unc[0, -1]],
-            np.ones(stat_denom_unc[0])
-            + np.r_[stat_denom_unc[1], stat_denom_unc[1, -1]],
-            {"facecolor": "tab:gray", "linewidth": 0},
-        )
-        ax.fill_between(
-            hdata.axes.edges,
-            np.ones(stat_denom_unc[0]) - np.r_[err_dn, err_dn[-1]],
-            np.ones(stat_denom_unc[0]) + np.r_[err_up, err_up[-1]],
-            {"facecolor": "tab:brown", "linewidth": 0},
-        )
-
-    elif "flav" in collated["mc"][discr].axes.name:
-        hep.histplot(
-            [collated["mc"][discr][{"flav": i}] for i in range(4)],
-            stack=True,
-            histtype="fill",
-            label=["udsg", "pileup", "c", "b"],
-            yerr=True,
-            ax=ax,
-        )
-        
-=======
                     ),
                 )
             )
@@ -374,7 +270,6 @@ for discr in arg.discr_list.split(","):
             ax=ax,
         )
 
->>>>>>> btv_upstream
         hep.histplot(
             collated["data"][discr][{"flav": sum}],
             histtype="errorbar",
@@ -416,13 +311,9 @@ for discr in arg.discr_list.split(","):
         rax.errorbar(
             x=collated["data"][discr].axes[0].centers,
             y=collated["data"][discr].values() / collated["mc"][discr].values(),
-<<<<<<< HEAD
-            yerr=ratio_uncertainty(collated["data"][discr].values(), collated["mc"][discr].values()),
-=======
             yerr=ratio_uncertainty(
                 collated["data"][discr].values(), collated["mc"][discr].values()
             ),
->>>>>>> btv_upstream
             color="k",
             linestyle="none",
             marker="o",
