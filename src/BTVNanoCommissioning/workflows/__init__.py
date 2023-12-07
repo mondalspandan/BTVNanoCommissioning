@@ -80,6 +80,12 @@ workflows["ectag_ttsemilep_sf"] = partial(
 workflows["ctag_Wc_sf"] = partial(CTAGWcValidSFProcessor, selectionModifier="WcM")
 workflows["ectag_Wc_sf"] = partial(CTAGWcValidSFProcessor, selectionModifier="WcE")
 
+# W+c and semilepttbar comb
+workflows["ctag_comb"] = partial(CTAGWcValidSFProcessor, selectionModifier="combM")
+workflows["ectag_comb"] = partial(CTAGWcValidSFProcessor, selectionModifier="combE")
+
+workflows["ctag_ttsemilep_DYCR"] = partial(CTAGWcValidSFProcessor, selectionModifier="semittDYM")
+
 # DY
 workflows["ctag_DY_sf"] = partial(CTAGDYValidSFProcessor, selectionModifier="DYM")
 workflows["ectag_DY_sf"] = partial(CTAGDYValidSFProcessor, selectionModifier="DYE")

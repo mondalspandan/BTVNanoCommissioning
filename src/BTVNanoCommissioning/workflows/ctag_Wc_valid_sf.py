@@ -102,31 +102,32 @@ class NanoProcessor(processor.ProcessorABC):
 
         isMu = False
         isEle = False
-        if "WcM" in self.selMod or "semittM" in self.selMod:
-            triggers = ["IsoMu27"]
+        muNeEmSum = 1
+        muonpTratioCut = 0.6
+        if "WcM" in self.selMod or "semittM" in self.selMod or "combM" in self.selMod or "semittDYM" in self.selMod:
+            triggers = ["IsoMu27","IsoMu24"]
             isMu = True
             dxySigcut = 1
-            muNeEmSum = 0.7
-            muonpTratioCut = 0.4
             isolepdz, isolepdxy, isolepsip3d = 0.01, 0.002, 2
-        elif "WcE" in self.selMod or "semittE" in self.selMod:
+            if "WcM" in self.selMod:
+                muonpTratioCut = 0.4
+                muNeEmSum = 0.7
+        elif "WcE" in self.selMod or "semittE" in self.selMod or "combE" in self.selMod:
             triggers = ["Ele32_WPTight_Gsf_L1DoubleEG"]
             isEle = True
             dxySigcut = 0
-            muNeEmSum = 1
-            muonpTratioCut = 0.6
             isolepdz, isolepdxy, isolepsip3d = 0.02, 0.01, 2.5
         else:
             raise ValueError(self.selMod, "is not a valid selection modifier.")
 
-        histoname = {
-            "WcM": "ctag_Wc_sf",
-            "WcE": "ectag_Wc_sf",
-            "semittM": "ctag_Wc_sf",  # same histogram representation as W+c
-            "semittE": "ectag_Wc_sf",  # same histogram representation as W+c
-        }
+        if self.selMod.endswith("M"):
+            histoname = "ctag_Wc_sf"
+        elif self.selMod.endswith("E"):
+            histoname = "ectag_Wc_sf"
+        else:
+            raise ValueError(self.selMod, "is not a valid selection modifier. Must end with M or E.")
         _hist_event_dict = (
-            {"": None} if self.noHist else histogrammer(events, histoname[self.selMod])
+            {"": None} if self.noHist else histogrammer(events, histoname)
         )
 
         output = {
@@ -199,10 +200,14 @@ class NanoProcessor(processor.ProcessorABC):
         if "DeepJet_nsv" in events.Jet.fields:
             jet_sel = jet_sel & (events.Jet.DeepJet_nsv > 0)
         event_jet = events.Jet[jet_sel]
+        
+        nseljet = ak.count(event_jet.pt, axis=1)
         if "Wc" in self.selMod:
-            req_jets = (ak.num(event_jet.pt) >= 1) & (ak.num(event_jet.pt) <= 3)
+            req_jets = (nseljet >= 1) & (nseljet <= 3)
+        elif "tt" in self.selMod:
+            req_jets = nseljet >= 4
         else:
-            req_jets = ak.num(event_jet.pt) >= 4
+            req_jets = nseljet >= 1
 
         ## Soft Muon cuts
         soft_muon = events.Muon[softmu_mask(events, self._campaign, dxySigcut)]
@@ -281,9 +286,12 @@ class NanoProcessor(processor.ProcessorABC):
 
         if isMu:
             dilep_mass = iso_lep + soft_muon[:, 0]
-            req_dilepmass = (dilep_mass.mass > 12.0) & (
-                (dilep_mass.mass < 80) | (dilep_mass.mass > 100)
-            )
+            if "semittDYM" in self.selMod:
+                req_dilepmass = (dilep_mass.mass > 80) & (dilep_mass.mass < 100)
+            else:
+                req_dilepmass = (dilep_mass.mass > 12.0) & (
+                    (dilep_mass.mass < 80) | (dilep_mass.mass > 100)
+                )
         elif isEle:
             req_dilepmass = iso_lep.pt > 0
 
@@ -317,9 +325,9 @@ class NanoProcessor(processor.ProcessorABC):
                 with_name="PtEtaPhiMLorentzVector",
             )
 
-        wmasscut = 55
-        if "semitt" in self.selMod:
-            wmasscut = 0
+        wmasscut = 0
+        if "Wc" in self.selMod:
+            wmasscut = 55
         Wcand = MET + iso_lep_trans  # transverse mass
         Wmass = Wcand.mass
         Wpt = Wcand.pt
@@ -629,6 +637,7 @@ class NanoProcessor(processor.ProcessorABC):
             pruned_ev["soft_l_ptratio"] = ssmu.pt / smuon_jet.pt
             pruned_ev["l1_ptratio"] = shmu.pt / smuon_jet.pt
             pruned_ev["MuonJet_beta"] = smuon_jet.pt / smuon_jet.E
+            pruned_ev["MuonJet_muneuEF"] = smuon_jet.muEF + smuon_jet.neEmEF
 
             array_writer(self, pruned_ev, events, systematics[0], dataset, isRealData)
 
