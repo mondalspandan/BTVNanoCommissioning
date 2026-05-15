@@ -50,6 +50,7 @@ arraySchema = {
         "SoftMuon_dxySig",
         "MuonJet_muneuEF",
         "soft_l_ptratio",
+        "soft_l_ptrel",
         "osss",
         "W_transmass",
         "W_pt",

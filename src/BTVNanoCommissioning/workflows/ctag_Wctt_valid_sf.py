@@ -1,6 +1,7 @@
 import awkward as ak
 import numpy as np
 from coffea import processor
+from coffea.nanoevents.methods import vector
 
 from BTVNanoCommissioning.utils.correction import (
     load_lumi,
@@ -71,7 +72,7 @@ class NanoProcessor(processor.ProcessorABC):
         isMu = False
         isEle = False
         ### selections from Spandan
-        if "WcM" in self.selMod or "semittM" in self.selMod:
+        if "WcM" in self.selMod or "WcttM" in self.selMod or "semittM" in self.selMod:
             triggers = ["IsoMu27", "IsoMu24"]
             isMu = True
             dxySigcut = 1.0
@@ -85,7 +86,7 @@ class NanoProcessor(processor.ProcessorABC):
                 muNeEmSum = 1.0
                 muonpTratioCut = 0.8
             isolepdz, isolepdxy, isolepsip3d = 0.01, 0.002, 2
-        elif "WcE" in self.selMod or "semittE" in self.selMod:
+        elif "WcE" in self.selMod or "WcttE" in self.selMod or "semittE" in self.selMod:
             triggers = [
                 "Ele32_WPTight_Gsf",
                 "Ele32_WPTight_Gsf_L1DoubleEG",
@@ -192,7 +193,9 @@ class NanoProcessor(processor.ProcessorABC):
         #     jet_sel = jet_sel & (events.Jet.DeepJet_nsv > 0)
         event_jet = events.Jet[jet_sel]
         nseljet = ak.count(event_jet.pt, axis=1)
-        if "Wc" in self.selMod:
+        if "Wctt" in self.selMod:
+            req_jets = nseljet >= 1
+        elif "Wc" in self.selMod:
             req_jets = (nseljet >= 1) & (nseljet <= 3)
         else:
             req_jets = nseljet >= 4
@@ -434,6 +437,7 @@ class NanoProcessor(processor.ProcessorABC):
         pruned_ev["dr_mujet_lep1"] = shmu.delta_r(smuon_jet)
         pruned_ev["dr_lep1_softmu"] = shmu.delta_r(ssmu)
         pruned_ev["soft_l_ptratio"] = ssmu.pt / smuon_jet.pt
+        pruned_ev["soft_l_ptrel"] = ssmu.cross(smuon_jet).p / smuon_jet.p
         pruned_ev["l1_ptratio"] = shmu.pt / smuon_jet.pt
         pruned_ev["MuonJet_beta"] = smuon_jet.pt / smuon_jet.E
         pruned_ev["MuonJet_muneuEF"] = smuon_jet.muEF + smuon_jet.neEmEF

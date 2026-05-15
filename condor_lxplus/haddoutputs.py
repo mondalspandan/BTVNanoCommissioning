@@ -5,11 +5,15 @@ from rich import print
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import argparse
+import dashboard as job_dashboard
 
 parser = argparse.ArgumentParser(
     description="Create hadd commands and submission scripts."
 )
-parser.add_argument("outputdir", help="Output directory containing array results")
+parser.add_argument(
+    "input",
+    help="Output directory containing array results, or the jobs_condor_* directory",
+)
 parser.add_argument(
     "--condor",
     "-c",
@@ -21,7 +25,26 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-outputdir = os.path.abspath(args.outputdir)
+input_path = os.path.abspath(args.input)
+jobdir = None
+outputdir = input_path
+
+if os.path.isdir(input_path) and os.path.basename(input_path).startswith(("jobs_", "job_")):
+    jobdir = input_path
+    status = job_dashboard.load_status(jobdir, create=False)
+    outputdir = status.get("output_dir") or ""
+    if not outputdir:
+        args_path = os.path.join(jobdir, "arguments.json")
+        if os.path.isfile(args_path):
+            with open(args_path) as f:
+                outputdir = json.load(f).get("outputDir", "")
+    if not outputdir:
+        raise ValueError(
+            f"Could not determine output directory from {jobdir}/job_status.json or arguments.json"
+        )
+    outputdir = os.path.abspath(outputdir)
+else:
+    jobdir = job_dashboard.find_job_dir_by_output(outputdir)
 
 arraydirs = [i for i in os.listdir(outputdir) if i.startswith("arrays_")]
 systlist = list(set([i.split("/")[-1] for i in glob(f"{outputdir}/arrays_*/*")]))
@@ -90,10 +113,14 @@ if check:
                 bar()
 
     if len(cmdlist) == 0:
+        if jobdir:
+            job_dashboard.record_hadd_checked(jobdir, len(expected_cmds), 0)
         print("[green][b]All files are fine![/][/]")
         exit()
 
     print(f"\n[red][b]Found {len(cmdlist)} incomplete/corrupt files![/][/]\n")
+    if jobdir:
+        job_dashboard.record_hadd_checked(jobdir, len(expected_cmds), len(cmdlist))
     haddfile = f"{outputdir}/dohadd_retry.sh"
     retry_suffix = "_retry"
 
@@ -126,6 +153,8 @@ else:
         )
         exit()
 
+    if jobdir:
+        job_dashboard.record_hadd_submitted(jobdir, len(cmdlist))
     haddfile = f"{outputdir}/dohadd.sh"
     retry_suffix = ""
 
@@ -141,8 +170,13 @@ if not args.condor:
     print(f"[cyan]parallel :::: {haddfile}[/]")
 
 # Create condor submission files
-current_dir = os.path.dirname(os.path.abspath(__file__)) + "/haddscripts"
-os.system("mkdir -p " + current_dir)
+if not jobdir:
+    raise ValueError(
+        "Could not identify the jobs_condor_* directory for this output directory. "
+        "Pass the job directory directly, or make sure its status/arguments JSON points to this output directory."
+    )
+current_dir = os.path.join(os.path.abspath(jobdir), "haddscripts")
+os.makedirs(current_dir, exist_ok=True)
 suffix = os.path.basename(outputdir.rstrip("/")) + retry_suffix
 hadd_sh = f"{current_dir}/hadd_wrapper_{suffix}.sh"
 hadd_sub = f"{current_dir}/hadd_{suffix}.sub"
@@ -151,7 +185,8 @@ haddfile_copy = (
 )
 shutil.copy(haddfile, haddfile_copy)
 
-os.system(f"mkdir -p {current_dir}/hadd_logs")
+hadd_log_dir = f"{current_dir}/hadd_logs"
+os.makedirs(hadd_log_dir, exist_ok=True)
 
 with open(hadd_sh, "w") as f:
     f.write("#!/bin/bash\n")
@@ -167,9 +202,9 @@ os.chmod(hadd_sh, 0o755)
 with open(hadd_sub, "w") as f:
     f.write(f"executable = {hadd_sh}\n")
     f.write(f"arguments = $(ProcID) {haddfile_copy}\n")
-    f.write(f"log = {current_dir}/hadd_logs/hadd.log\n")
-    f.write(f"output = {current_dir}/hadd_logs/hadd.out_$(ProcID)\n")
-    f.write(f"error = {current_dir}/hadd_logs/hadd.err_$(ProcID)\n")
+    f.write(f"log = {hadd_log_dir}/hadd.log_$(Cluster)\n")
+    f.write(f"output = {hadd_log_dir}/hadd.out_$(Cluster)-$(ProcID)\n")
+    f.write(f"error = {hadd_log_dir}/hadd.err_$(Cluster)-$(ProcID)\n")
     f.write(f"request_cpus = {args.ncpu}\n")
     f.write("getenv = True\n")
     if retry_suffix == "_retry":
@@ -177,6 +212,9 @@ with open(hadd_sub, "w") as f:
     else:
         f.write('+JobFlavour = "longlunch"\n')
     f.write(f"queue {len(cmdlist)}\n")
+
+if check and jobdir and len(cmdlist) > 0:
+    job_dashboard.record_hadd_submitted(jobdir, len(cmdlist))
 
 if args.condor:
     print("\n[b]Submitting to condor...[/]")

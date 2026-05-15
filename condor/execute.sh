@@ -13,7 +13,7 @@ WORKDIR=`pwd`
 
 # Get arguments
 declare -A ARGS
-for key in workflow output samplejson year campaign isSyst isArray noHist overwrite voms chunk skipbadfiles outputDir remoteRepo; do
+for key in workflow output samplejson year campaign isSyst isArray noHist overwrite voms chunk skipbadfiles outputDir remoteRepo scm_version; do
     ARGS[$key]=$(jq -r ".$key" $WORKDIR/arguments.json)
 done
 
@@ -64,8 +64,9 @@ fi
 rm -rf src/BTVNanoCommissioning/jsonpog-integration
 ln -s /cvmfs/cms.cern.ch/rsync/cms-nanoAOD/jsonpog-integration src/BTVNanoCommissioning/jsonpog-integration  # link jsonpog-integration
 
+export SETUPTOOLS_SCM_PRETEND_VERSION=${ARGS[scm_version]}
 pip install -e .
-
+构,StartLine:67,TargetContent:
 ## other dependencies
 pip install psutil
 

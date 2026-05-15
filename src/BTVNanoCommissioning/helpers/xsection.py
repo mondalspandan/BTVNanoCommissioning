@@ -458,16 +458,52 @@ xsection = [
         "comment": "from TOP-22-012 with PDG 2023 value",
     },
     {
+        "process_name": "TWminusto4Q-DS_TuneCP5_13p6TeV_powheg-pythia8",
+        "cross_section": "10.8",
+        "energy": "13.6",
+        "comment": "from TOP-22-012 with PDG 2023 value (DS version)",
+    },
+    {
+        "process_name": "TbarWplusto4Q-DS_TuneCP5_13p6TeV_powheg-pythia8",
+        "cross_section": "10.8",
+        "energy": "13.6",
+        "comment": "from TOP-22-012 with PDG 2023 value (DS version)",
+    },
+    {
         "process_name": "TWminustoLNu2Q_TuneCP5_13p6TeV_powheg-pythia8",
         "cross_section": "10.7",
         "energy": "13.6",
         "comment": "from TOP-22-012 with PDG 2023 value",
     },
     {
+        "process_name": "TWminustoLNu2Q-DS_TuneCP5_13p6TeV_powheg-pythia8",
+        "cross_section": "10.7",
+        "energy": "13.6",
+        "comment": "from TOP-22-012 with PDG 2023 value (DS version)",
+    },
+    {
+        "process_name": "TbarWplustoLNu2Q-DS_TuneCP5_13p6TeV_powheg-pythia8",
+        "cross_section": "10.7",
+        "energy": "13.6",
+        "comment": "from TOP-22-012 with PDG 2023 value (DS version)",
+    },
+    {
         "process_name": "TWminusto2L2Nu_TuneCP5_13p6TeV_powheg-pythia8",
         "cross_section": "2.62",
         "energy": "13.6",
         "comment": "from TOP-22-012 with PDG 2023 value",
+    },
+    {
+        "process_name": "TWminusto2L2Nu-DS_TuneCP5_13p6TeV_powheg-pythia8",
+        "cross_section": "2.62",
+        "energy": "13.6",
+        "comment": "from TOP-22-012 with PDG 2023 value (DS version)",
+    },
+    {
+        "process_name": "TbarWplusto2L2Nu-DS_TuneCP5_13p6TeV_powheg-pythia8",
+        "cross_section": "2.62",
+        "energy": "13.6",
+        "comment": "from TOP-22-012 with PDG 2023 value (DS version)",
     },
     {
         "process_name": "TBbartoLplusNuBbar-s-channel-4FS_TuneCP5_13p6TeV_amcatnlo-pythia8",

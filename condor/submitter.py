@@ -3,17 +3,25 @@ import json
 import shutil
 import tarfile
 import argparse
+import re
 
 
 def make_tarfile(output_filename, source_dir, exclude_dirs=[]):
     with tarfile.open(output_filename, "w:gz") as tar:
-        for root, dirs, files in os.walk(source_dir):
-            dirs[:] = [
-                d for d in dirs if d not in exclude_dirs
-            ]  # Exclude specified directories
-            for file in files:
-                file_path = os.path.join(root, file)
-                tar.add(file_path, arcname=os.path.relpath(file_path, source_dir))
+        for item in os.listdir(source_dir):
+            if item in exclude_dirs:
+                continue
+            item_path = os.path.join(source_dir, item)
+            if os.path.isdir(item_path):
+                for root, dirs, files in os.walk(item_path):
+                    # Ensure we also skip any nested excluded directories
+                    dirs[:] = [d for d in dirs if d not in exclude_dirs]
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        tar.add(file_path, arcname=os.path.relpath(file_path, source_dir))
+            else:
+                # Add top-level files
+                tar.add(item_path, arcname=item)
 
 
 def get_condor_submitter_parser(parser):
@@ -158,6 +166,19 @@ if __name__ == "__main__":
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = current_dir.replace("/condor", "")
+    if base_dir not in sys.path:
+        sys.path.insert(0, base_dir)
+    from condor_lxplus import dashboard as job_dashboard
+
+    # Extract version for setuptools_scm fallback in worker nodes
+    try:
+        with open(os.path.join(base_dir, "src/BTVNanoCommissioning/version.py")) as f:
+            v_content = f.read()
+            v_match = re.search(r"version = ['\"]([^'\"]+)['\"]", v_content)
+            scm_version = v_match.group(1) if v_match else "0.1"
+    except Exception:
+        scm_version = "0.1"
+    setattr(args, "scm_version", scm_version)
 
     if args.remoteRepo is not None:
         print("Will use a remote path to access BTVNanoCommissioning:", args.remoteRepo)
@@ -184,6 +205,8 @@ if __name__ == "__main__":
                     d.startswith("jobs_")
                     or d.startswith("arrays_")
                     or d.startswith("hists_")
+                    or d.startswith("condor")
+                    or d.startswith(".")
                 ):
                     exclude_list.append(d)
             make_tarfile(
@@ -252,6 +275,13 @@ if __name__ == "__main__":
     ## store the jobnum list (0..jobnum-1)
     with open(os.path.join(job_dir, "jobnum_list.txt"), "w") as f:
         f.write("\n".join([str(i) for i in range(counter)]))
+
+    job_dashboard.record_submission(
+        job_dir,
+        counter,
+        job_name=args.jobName,
+        output_dir=args.outputDir,
+    )
 
     ## store the jdl file
     jdl_template = """Universe   = vanilla

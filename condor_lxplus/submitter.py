@@ -4,6 +4,7 @@ import shutil
 import tarfile
 import argparse
 import subprocess
+import sys
 
 
 def make_tarfile(output_filename, source_dir, exclude_dirs=[]):
@@ -155,6 +156,9 @@ if __name__ == "__main__":
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = current_dir.replace("/condor_lxplus", "")
+    if base_dir not in sys.path:
+        sys.path.insert(0, base_dir)
+    from condor_lxplus import dashboard as job_dashboard
     """
     if args.remoteRepo is not None:
         print("Will use a remote path to access BTVNanoCommissioning:", args.remoteRepo)
@@ -262,6 +266,13 @@ if __name__ == "__main__":
     ## store the jobnum list (0..jobnum-1)
     with open(os.path.join(job_dir, "jobnum_list.txt"), "w") as f:
         f.write("\n".join([str(i) for i in range(counter)]))
+
+    job_dashboard.record_submission(
+        job_dir,
+        counter,
+        job_name=args.jobName,
+        output_dir=args.outputDir,
+    )
 
     ## store the jdl file
     jdl_template = """Universe   = vanilla

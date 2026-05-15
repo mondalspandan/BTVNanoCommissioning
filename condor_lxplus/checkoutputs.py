@@ -7,6 +7,7 @@ from rich import print
 from BTVNanoCommissioning.utils.xrootdtools import get_xrootd_sites_map, find_other_file
 from glob import glob
 from alive_progress import alive_bar
+import dashboard as job_dashboard
 
 parser = argparse.ArgumentParser()
 parser.add_argument("job_dir", type=str, help="Input string")
@@ -74,6 +75,12 @@ with alive_bar(len(numlist), title="Checking jobs") as bar:
             bar()
 
 toresubmit = sorted(list(set(toresubmit)), key=lambda x: int(x))
+job_dashboard.record_checked_outputs(
+    jobdir,
+    checked_jobs=len(numlist),
+    missing_jobs=len(toresubmit),
+    job_ids=toresubmit,
+)
 
 if len(toresubmit) == 0:
     print("[green][b]All jobs complete. Nothing to resubmit![/][/]\n")
@@ -144,6 +151,8 @@ with open(f"{jobdir}/resubmit.jdl", "w") as jdlnew:
         if "+JobFlavour" in line and current_flavour:
             towrite = towrite.replace(f'"{current_flavour}"', f'"{next_flavour}"')
         jdlnew.write(towrite)
+
+job_dashboard.record_resubmitted_jobs(jobdir, toresubmit)
 
 print(f"[yellow]Found {len(toresubmit)} missing outputs: {toresubmit}[/]")
 if run_condor:
