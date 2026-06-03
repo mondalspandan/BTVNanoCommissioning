@@ -2,13 +2,98 @@ import os, argparse
 from BTVNanoCommissioning.workflows import workflows
 from BTVNanoCommissioning.utils.sample import predefined_sample
 from BTVNanoCommissioning.utils.AK4_parameters import correction_config
-import os, sys, inspect
+import os, sys, inspect, shlex
 
 current_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 
 from runner import config_parser, scaleout_parser, debug_parser
+from condor.submitter import get_condor_submitter_parser, validate_x509_proxy
+
+
+CONDOR_TRIGGER_ARGS = {
+    "--jobqueue",
+    "--jobName",
+    "--outputDir",
+    "--remoteRepo",
+    "--nCPU",
+    "-nCPU",
+    "--condorFileSize",
+    "-n",
+}
+
+
+def condor_mode_requested(argv):
+    for arg in argv:
+        option = arg.split("=", 1)[0]
+        if option in CONDOR_TRIGGER_ARGS:
+            return True
+    return False
+
+
+def get_condor_job_name(args, workflow, sample_type):
+    return f"condor_{workflow}_{sample_type}"
+
+
+def get_condor_output_dir(args, workflow, sample_type):
+    return os.path.join(args.condorOutputBase, f"{workflow}_{sample_type}{args.version}")
+
+
+def get_condor_file_size(args, sample_type, condor_file_size_override):
+    if condor_file_size_override:
+        return args.condorFileSize
+    if sample_type == "data":
+        return args.datafiles
+    return args.mcfiles
+
+
+def should_skip_mc_family(sample_type, mc_family):
+    tokens = set(sample_type.upper().split("_"))
+    if mc_family == "lo":
+        return "NLO" in tokens
+    if mc_family == "nlo":
+        return "LO" in tokens and "NLO" not in tokens
+    return False
+
+
+RUNNER_SKIP_KEYS = {
+    "workflow",
+    "json",
+    "campaign",
+    "year",
+    "scheme",
+    "DAS_campaign",
+    "version",
+    "local",
+    "debug",
+    "limit_MC",
+    "limit_MC_Wc",
+    "validate_workflow",
+    "mc",
+    "jobName",
+    "outputDir",
+    "condorOutputBase",
+    "datafiles",
+    "mcfiles",
+    "condorFileSize",
+    "remoteRepo",
+    "jobqueue",
+    "nCPU",
+    "reuseTarball",
+}
+
+
+CONDOR_ARG_KEYS = {
+    "isSyst",
+    "isArray",
+    "noHist",
+    "overwrite",
+    "only",
+    "voms",
+    "chunk",
+    "skipbadfiles",
+}
 
 
 def is_running_in_ci():
@@ -85,12 +170,13 @@ if __name__ == "__main__":
     parser = config_parser(parser)
     paser = scaleout_parser(parser)
     paser = debug_parser(parser)
+    parser = get_condor_submitter_parser(parser, require_job_args=False)
     parser.add_argument(
         "-sc",
         "--scheme",
         default="Validation",
         choices=list(workflows.keys())
-        + ["Validation", "Validation_tt", "SF", "default_comissioning"],
+        + ["Validation", "Validation_tt", "SF", "default_comissioning", "CFM"],
         help="Choose the function for dump luminosity(`lumi`)/failed files(`failed`) into json",
     )
 
@@ -127,8 +213,50 @@ if __name__ == "__main__":
         action="store_true",
         help="Run only data and MC samples for the workflow, skip minor MC samples",
     )
+    parser.add_argument(
+        "--mc",
+        type=lambda value: value.lower(),
+        default="nlo",
+        choices=["lo", "nlo"],
+        help="Choose which MC family to keep when a workflow splits MC into LO/NLO buckets (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--condorOutputBase",
+        default=None,
+        help="Base output directory used by suball when Condor mode is enabled.",
+    )
+    parser.add_argument(
+        "--datafiles",
+        type=int,
+        default=15,
+        help="Number of data files to put into each Condor job (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--mcfiles",
+        type=int,
+        default=5,
+        help="Number of non-data files to put into each Condor job (default: %(default)s).",
+    )
 
+    raw_argv = sys.argv[1:]
     args = parser.parse_args()
+    use_condor = condor_mode_requested(raw_argv)
+    condor_file_size_override = any(
+        arg.split("=", 1)[0] in {"--condorFileSize", "-n"} for arg in raw_argv
+    )
+
+    if use_condor and args.condorOutputBase is None:
+        raise SystemExit(
+            "Condor mode requires --condorOutputBase.\n"
+            "Example:\n"
+            f"  {sys.executable} scripts/suball.py --scheme CFM --campaign {args.campaign} "
+            f"--year {args.year} --DAS_campaign '{args.DAS_campaign}' --jobqueue workday "
+            "--condorOutputBase /eos/path --isArray --skipbadfiles"
+        )
+
+    if use_condor:
+        validate_x509_proxy()
+
     # summarize diffeerent group for study
     scheme = {
         # scale factor workflows
@@ -146,14 +274,58 @@ if __name__ == "__main__":
             "QCD_sf",
             "QCD_mu_sf",
         ],
+        # CFM submission bundle from submit_DYele.sh
+        "CFM": [
+            "ctag_Wc_noMuVeto_sf",
+            "ectag_Wc_sf",
+            "ctag_DY_sf",
+            "ectag_DY_sf",
+            "ctag_ttsemilep_noMuVeto_sf",
+            "ectag_ttsemilep_sf",
+        ],
     }
     if args.scheme in workflows.keys():
         scheme[args.scheme] = [args.scheme]
         # scheme["test"] = [args.scheme]
         # args.scheme = "test"
 
+    cfm_workflow_aliases = {
+        # These two workflows share the same dataset tags and JSON naming in submit_DYele.sh
+        "ctag_Wc_noMuVeto_sf": "ctag_Wc_sf",
+        "ctag_ttsemilep_noMuVeto_sf": "ctag_ttsemilep_sf",
+    }
+    cfm_sample_types = {
+        "ctag_Wc_noMuVeto_sf": {"data", "MC", "MC_LO", "minor_MC"},
+        "ectag_Wc_sf": {"data", "MC", "MC_LO", "minor_MC"},
+        "ctag_DY_sf": {"data", "MC_LO", "minor_MC"},
+        "ectag_DY_sf": {"data", "MC_LO", "minor_MC"},
+        "ctag_ttsemilep_noMuVeto_sf": {"data", "MC", "MC_LO", "minor_MC"},
+        "ectag_ttsemilep_sf": {"data", "MC", "MC_LO", "minor_MC"},
+    }
+
+    if args.scheme == "CFM":
+        missing_cfm_flags = []
+        if not args.isArray:
+            missing_cfm_flags.append("--isArray")
+        if args.isSyst != "all_withJESTotal":
+            missing_cfm_flags.append("--isSyst all_withJESTotal")
+        if missing_cfm_flags:
+            print(
+                "⚠️ CFM usually expects "
+                + ", ".join(missing_cfm_flags)
+                + " to be set."
+            )
+            response = input(
+                "Proceed with the CFM bundle anyway? [y/N]: "
+            ).strip().lower()
+            if response not in {"y", "yes"}:
+                print("Aborting CFM submission at user request.")
+                sys.exit(1)
+
     # Check lumiMask exists and replace the Validation
-    input_lumi_json = correction_config[args.campaign]["DC"]
+    campaign_config = correction_config[args.campaign]
+    campaign_default_config = campaign_config.get("default", campaign_config)
+    input_lumi_json = campaign_default_config["DC"]
     if args.campaign != "prompt_dataMC" and not os.path.exists(
         f"src/BTVNanoCommissioning/data/DC/{input_lumi_json}"
     ):
@@ -161,7 +333,7 @@ if __name__ == "__main__":
 
     if (
         args.campaign == "prompt_dataMC"
-        and correction_config[args.campaign]["DC"] == "$PROMPT_DATAMC"
+        and campaign_default_config["DC"] == "$PROMPT_DATAMC"
     ):
         input_lumi_json = get_lumi_from_web(args.year)
         os.system(
@@ -169,7 +341,12 @@ if __name__ == "__main__":
         )
         print(f"======>{input_lumi_json} is used for {args.year}")
 
+    condor_submit_count = 0
     for wf in scheme[args.scheme]:
+        workflow_tag = cfm_workflow_aliases.get(wf, wf)
+        allowed_sample_types = (
+            cfm_sample_types.get(wf) if args.scheme == "CFM" else None
+        )
         if args.validate_workflow:
             print(
                 f"ℹ️ Running workflow '{wf}' in validation mode (only data and MC samples)"
@@ -180,23 +357,36 @@ if __name__ == "__main__":
         ## creating dataset
         if (
             not os.path.exists(
-                f"metadata/{args.campaign}/MC_{args.campaign}_{args.year}_{wf}.json"
+                f"metadata/{args.campaign}/MC_{args.campaign}_{args.year}_{workflow_tag}.json"
             )
             or args.overwrite
         ):
             if args.debug:
                 print(
-                    f"Creating MC dataset: python scripts/fetch.py -c {args.campaign} --from_workflow {wf} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --executor futures"
+                    f"Creating MC dataset: python scripts/fetch.py -c {args.campaign} --from_workflow {workflow_tag} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --executor futures"
                 )
 
             os.system(
-                f"python scripts/fetch.py -c {args.campaign} --from_workflow {wf} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --executor futures"
+                f"python scripts/fetch.py -c {args.campaign} --from_workflow {workflow_tag} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --executor futures"
             )
             if args.debug:
                 os.system(f"ls metadata/{args.campaign}/*.json")
 
         ## Run the workflows
-        for types in predefined_sample[wf].keys():
+        for types in predefined_sample[workflow_tag].keys():
+            if allowed_sample_types is not None and types not in allowed_sample_types:
+                if args.debug:
+                    print(
+                        f"⚠️ Skipping sample type '{types}' for CFM workflow '{wf}'"
+                    )
+                continue
+
+            if should_skip_mc_family(types, args.mc):
+                if args.debug:
+                    print(
+                        f"⚠️ Skipping sample type '{types}' because --mc {args.mc} was selected"
+                    )
+                continue
 
             if (types != "data" and types != "MC") and (
                 args.scheme == "Validation" or args.validate_workflow
@@ -213,40 +403,45 @@ if __name__ == "__main__":
                 or args.overwrite
             ):
                 if not os.path.exists(
-                    f"metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{wf}.json"
+                    f"metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{workflow_tag}.json"
                 ):
                     raise Exception(
-                        f"metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{wf}.json not exist"
+                        f"metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{workflow_tag}.json not exist"
                     )
-                json_file = f"metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{wf}.json"
+                json_file = f"metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{workflow_tag}.json"
 
                 # Check if dataset needs refreshing because of age
                 if should_refresh_dataset(json_file):
                     print(f"Refreshing dataset: {json_file}")
-                    fetch_cmd = f"python scripts/fetch.py -c {args.campaign} --from_workflow {wf} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --overwrite --executor futures"
+                    fetch_cmd = f"python scripts/fetch.py -c {args.campaign} --from_workflow {workflow_tag} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --overwrite --executor futures"
                     os.system(fetch_cmd)
 
-                runner_config_required = f"python runner.py --wf {wf} --json metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{wf}.json {overwrite} --campaign {args.campaign} --year {args.year}"
-                runner_config = ""
+                json_path = f"metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{workflow_tag}.json"
+                base_command = (
+                    [sys.executable, "condor/submitter.py"]
+                    if use_condor
+                    else [sys.executable, "runner.py"]
+                )
+                command = (
+                    base_command
+                    + [
+                        "--wf",
+                        wf,
+                        "--json",
+                        json_path,
+                        "--campaign",
+                        args.campaign,
+                        "--year",
+                        str(args.year),
+                    ]
+                )
                 limit_added = False  # Track if we've already added a limit flag
 
                 for key, value in vars(args).items():
-                    # Required info or things not relevant for runner, skip
-                    # Skip keys that don't apply to runner
-                    if key in [
-                        "workflow",
-                        "json",
-                        "campaign",
-                        "year",
-                        "scheme",
-                        "DAS_campaign",
-                        "version",
-                        "local",
-                        "debug",
-                        "limit_MC",
-                        "limit_MC_Wc",
-                        "validate_workflow",
-                    ]:
+                    if use_condor:
+                        if key not in CONDOR_ARG_KEYS:
+                            continue
+                    elif key in RUNNER_SKIP_KEYS:
                         continue
 
                     # Handle boolean flags
@@ -258,13 +453,13 @@ if __name__ == "__main__":
                         "skipbadfiles",
                     ]:
                         if value == True:
-                            runner_config += f" --{key}"
+                            command.append(f"--{key}")
                     elif value is not None:
                         if key == "limit":
-                            runner_config += f" --{key}={value}"
+                            command.extend([f"--{key}", str(value)])
                             limit_added = True
                         else:
-                            runner_config += f" --{key}={value}"
+                            command.extend([f"--{key}", str(value)])
 
                 # Add limit for MC validation if not already present
                 if types == "MC" and not limit_added:
@@ -274,17 +469,46 @@ if __name__ == "__main__":
                         or "Validation_tt" == args.scheme
                         or args.limit_MC
                     ):
-                        runner_config += " --limit 50"
+                        if not use_condor:
+                            command.extend(["--limit", "50"])
                         limit_added = True
                         print(f"⚠️ Running with 50 files limit for MC samples")
                     elif args.limit_MC_Wc:
-                        runner_config += " --limit 100"
+                        if not use_condor:
+                            command.extend(["--limit", "100"])
                         limit_added = True
                         print(f"⚠️ Running with 100 files limit for MC samples")
-                runner_config = runner_config_required + runner_config
+
+                if use_condor:
+                    if condor_submit_count > 0:
+                        command.append("--reuseTarball")
+                    command.extend(
+                        [
+                            "--jobName",
+                            get_condor_job_name(args, wf, types),
+                            "--outputDir",
+                            get_condor_output_dir(args, wf, types),
+                            "--condorFileSize",
+                            str(
+                                get_condor_file_size(
+                                    args, types, condor_file_size_override
+                                )
+                            ),
+                        ]
+                    )
+                    if args.remoteRepo is not None:
+                        command.extend(["--remoteRepo", args.remoteRepo])
+                    if args.jobqueue is not None:
+                        command.extend(["--jobqueue", args.jobqueue])
+                    if args.nCPU is not None:
+                        command.extend(["--nCPU", str(args.nCPU)])
+
+                runner_config = shlex.join(command)
                 if args.debug:
                     print(f"run the workflow: {runner_config}")
                 os.system(runner_config)
+                if use_condor:
+                    condor_submit_count += 1
 
                 with open(
                     f"config_{args.year}_{args.campaign}_{args.scheme}_{args.version}.txt",
@@ -294,6 +518,10 @@ if __name__ == "__main__":
 
         if args.debug:
             print(f"workflow is finished for {wf}!")
+
+        if use_condor:
+            print(f"Condor submissions finished for {wf}; skipping local lumi and plotting.")
+            continue
 
         if is_running_in_ci():
             import numpy as np

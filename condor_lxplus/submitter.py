@@ -122,6 +122,7 @@ def get_main_parser():
         choices=[
             "False",
             "all",
+            "all_withJESTotal",
             "weight_only",
             "JEC_full",
             "JEC_reduced",

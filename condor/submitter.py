@@ -24,11 +24,11 @@ def make_tarfile(output_filename, source_dir, exclude_dirs=[]):
                 tar.add(item_path, arcname=item)
 
 
-def get_condor_submitter_parser(parser):
+def get_condor_submitter_parser(parser, require_job_args=True):
     parser.add_argument(
         "--jobName",
         help="Condor job name to make the job directory",
-        required=True,
+        required=require_job_args,
     )
     parser.add_argument(
         "-nCPU",
@@ -47,7 +47,7 @@ def get_condor_submitter_parser(parser):
     parser.add_argument(
         "--outputDir",
         help="Output directory",
-        required=True,
+        required=require_job_args,
     )
     parser.add_argument(
         "--remoteRepo",
@@ -59,7 +59,24 @@ def get_condor_submitter_parser(parser):
         default="tomorrow",
         help="JobFlavour for condor@lxplus. E.g. microcentury, longlunch, workday, tomorrow",
     )
+    parser.add_argument(
+        "--reuseTarball",
+        action="store_true",
+        help="Reuse an existing BTVNanoCommissioning.tar.gz without prompting to recreate it.",
+    )
     return parser
+
+
+def validate_x509_proxy():
+    uid = os.getuid()
+    homedir = os.getenv("HOME")
+    expected_value = f"{homedir}/x509up_u{uid}"
+    current_value = os.getenv("X509_USER_PROXY")
+    if current_value != expected_value:
+        print("X509_USER_PROXY is NOT set correctly.")
+        print("Please run the following command in your shell:")
+        print("export X509_USER_PROXY=$HOME/x509up_u`id -u`")
+        sys.exit(1)
 
 
 def get_main_parser():
@@ -115,6 +132,7 @@ def get_main_parser():
         choices=[
             "False",
             "all",
+            "all_withJESTotal",
             "weight_only",
             "JEC_full",
             "JEC_reduced",
@@ -162,16 +180,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     print("Running with the following options:")
     print(args)
-
-    uid = os.getuid()
-    homedir = os.getenv("HOME")
-    expected_value = f"{homedir}/x509up_u{uid}"
-    current_value = os.getenv("X509_USER_PROXY")
-    if current_value != expected_value:
-        print("X509_USER_PROXY is NOT set correctly.")
-        print(f"Please run the following command in your shell:")
-        print(f"export X509_USER_PROXY=$HOME/x509up_u`id -u`")
-        sys.exit(1)
+    validate_x509_proxy()
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = current_dir.replace("/condor", "")
@@ -196,14 +205,18 @@ if __name__ == "__main__":
 
         skip_tar = False
         if os.path.exists("BTVNanoCommissioning.tar.gz"):
-            user_input = input(
-                "BTVNanoCommissioning.tar.gz already exists, skip the tarring? ([y]/n): "
-            )
-            if user_input.lower() != "n":
+            if args.reuseTarball:
+                print("Reusing existing BTVNanoCommissioning.tar.gz")
                 skip_tar = True
             else:
-                skip_tar = False
-                os.remove("BTVNanoCommissioning.tar.gz")
+                user_input = input(
+                    "BTVNanoCommissioning.tar.gz already exists, skip the tarring? ([y]/n): "
+                )
+                if user_input.lower() != "n":
+                    skip_tar = True
+                else:
+                    skip_tar = False
+                    os.remove("BTVNanoCommissioning.tar.gz")
 
         if not skip_tar:
             exclude_list = ["jsonpog-integration", "BTVNanoCommissioning.egg-info"]
