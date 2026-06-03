@@ -17,6 +17,11 @@ try:
 except Exception:
     ort = None
 
+try:
+    import onnxruntime as ort
+except Exception:
+    ort = None
+
 from coffea.lookup_tools import extractor, txt_converters, rochester_lookup
 from coffea.lumi_tools import LumiMask
 from coffea.jetmet_tools.CorrectedMETFactory import corrected_polar_met
@@ -35,6 +40,9 @@ from BTVNanoCommissioning.helpers.func import (
     campaign_map,
 )
 from BTVNanoCommissioning.utils.AK4_parameters import correction_config as config
+
+_TTBAR_REWEIGHT_CACHE = {}
+
 
 _TTBAR_REWEIGHT_CACHE = {}
 
@@ -667,8 +675,10 @@ sf_jersmear = cset_jersmear["JERSmear"]
 
 # JEC/JES sources for the full set according to
 # https://cms-jerc.web.cern.ch/Recommendations/#jet-energy-scale_1
-def get_JES_keys(year):
-    reduced_keys = [
+def get_JES_keys(year: int | str, campaign: str = "") -> dict[str, set]:
+    if campaign == "2016preVFP-UL":
+        year = "2016APV"
+    reduced_keys = {
         f"Regrouped_Absolute_{year}",
         "Regrouped_Absolute",
         f"Regrouped_BBEC1_{year}",
@@ -680,7 +690,7 @@ def get_JES_keys(year):
         "Regrouped_HF",
         "Regrouped_RelativeBal",
         f"Regrouped_RelativeSample_{year}",
-    ]
+    }
     return {
         "full": {
             "AbsoluteMPFBias",
@@ -712,7 +722,7 @@ def get_JES_keys(year):
             "TimePtEta",
         },
         "reduced": reduced_keys,
-        "all_withJESTotal": reduced_keys + ["Total"],
+        "all_withJESTotal": reduced_keys | {"Total"},
         "total": {"Total"},
     }
 
@@ -1008,7 +1018,7 @@ def JME_shifts(
 
     if not isRealData and systematic != False:
         jerc_id_arr = systematic.split("_")
-        jes_sources = get_JES_keys(jes_year)
+        jes_sources = get_JES_keys(jes_year, campaign)
         if systematic == "all_withJESTotal":
             jes_sources_id = "all_withJESTotal"
         elif len(jerc_id_arr) >= 2 and jerc_id_arr[0] == "JEC":
@@ -2578,7 +2588,7 @@ def eleSFs(ele, correct_map, weights, syst=True, isHLT=False):
                         ele_pt = ak.fill_none(ele.pt, 10.0)
                         ele_pt = np.clip(ele_pt, 10.0, None)
 
-                    if "Summer23" in correct_map["campaign"]:
+                    if "Summer23" in correct_map["campaign"] and "ID" in sf:
                         sfs = np.where(
                             masknone,
                             1.0,
@@ -2732,7 +2742,12 @@ def muSFs(mu, correct_map, weights, syst=False, isHLT=False):
             if "Trig" in sf:
                 mu_pt = np.clip(mu.pt, 26.0, None)
             else:
-                mu_pt = np.clip(mu.pt, 10.0, None)
+                pt_min = (
+                    10.0
+                    if correct_map["campaign"] in ["Summer24", "Winter25", "Prompt25"]
+                    else 15.0
+                )
+                mu_pt = np.clip(mu.pt, pt_min, None)
             mu_eta = np.clip(mu.eta, -2.4, 2.399999)
             sfs = 1.0
             if "correctionlib" in str(type(correct_map["MUO"])):
