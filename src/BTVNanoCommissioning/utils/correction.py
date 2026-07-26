@@ -6,7 +6,7 @@ import json
 import os
 import re
 import warnings
-
+import sys
 import numpy as np
 import awkward as ak
 import uproot
@@ -17,14 +17,8 @@ try:
 except Exception:
     ort = None
 
-try:
-    import onnxruntime as ort
-except Exception:
-    ort = None
-
 from coffea.lookup_tools import extractor, txt_converters, rochester_lookup
 from coffea.lumi_tools import LumiMask
-from coffea.jetmet_tools.CorrectedMETFactory import corrected_polar_met
 from coffea.analysis_tools import Weights
 from coffea.btag_tools import BTagScaleFactor
 
@@ -40,9 +34,6 @@ from BTVNanoCommissioning.helpers.func import (
     campaign_map,
 )
 from BTVNanoCommissioning.utils.AK4_parameters import correction_config as config
-
-_TTBAR_REWEIGHT_CACHE = {}
-
 
 _TTBAR_REWEIGHT_CACHE = {}
 
@@ -101,11 +92,9 @@ def load_SF(year, campaign, selMod="default", syst=False):
     correct_map = {"campaign": campaign}
 
     conf = copy.copy(config[campaign]["default"])
-    if selMod != "default":
-        if selMod in config[campaign].keys():
-            for key in conf.keys():
-                if key in config[campaign][selMod].keys():
-                    conf[key] = copy.copy(config[campaign][selMod][key])
+    if selMod != "default" and selMod in config[campaign].keys():
+        for key in config[campaign][selMod].keys():
+            conf[key] = copy.copy(config[campaign][selMod][key])
 
     for SF in conf.keys():
         if SF == "DC":
@@ -123,9 +112,14 @@ def load_SF(year, campaign, selMod="default", syst=False):
                         f"/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/{_lum_cvmfs}/latest/puWeights.json.gz"
                     )
                 except FileNotFoundError:
-                    correct_map["LUM"] = correctionlib.CorrectionSet.from_file(
-                        f"/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/{_lum_cvmfs}/latest/puWeights_BCDEFGHI.json.gz"
-                    )
+                    try:
+                        correct_map["LUM"] = correctionlib.CorrectionSet.from_file(
+                            f"/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/{_lum_cvmfs}/latest/puWeights_BCDEFGHI.json.gz"
+                        )
+                    except FileNotFoundError:
+                        correct_map["LUM"] = correctionlib.CorrectionSet.from_file(
+                            f"/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/{_lum_cvmfs}/latest/puWeights_2025pp_Golden_Summer24_25ns_69200ub.json.gz"
+                        )
             ## Otherwise custom files
             else:
                 _pu_path = f"BTVNanoCommissioning.data.LUM.{campaign}"
@@ -145,29 +139,29 @@ def load_SF(year, campaign, selMod="default", syst=False):
             if "btag" in conf["BTV"].keys() and conf["BTV"]["btag"].endswith(
                 ".json.gz"
             ):
+                filename = conf["BTV"]["btag"]
                 correct_map["btag"] = correctionlib.CorrectionSet.from_file(
-                    importlib.resources.path(
-                        f"BTVNanoCommissioning.data.BTV.{campaign}", filename
-                    )
+                    f"{os.getcwd()}/src/BTVNanoCommissioning/data/BTV/{campaign}/{filename}"
                 )
             if "ctag" in conf["BTV"].keys() and conf["BTV"]["ctag"].endswith(
                 ".json.gz"
             ):
-                correct_map["btag"] = correctionlib.CorrectionSet.from_file(
-                    importlib.resources.path(
-                        f"BTVNanoCommissioning.data.BTV.{campaign}", filename
-                    )
+                filename = conf["BTV"]["ctag"]
+                correct_map["ctag"] = correctionlib.CorrectionSet.from_file(
+                    f"{os.getcwd()}/src/BTVNanoCommissioning/data/BTV/{campaign}/{filename}"
                 )
             _btv_cvmfs = _cvmfs_dir(campaign, "BTV")
             if os.path.exists(
                 f"/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/{_btv_cvmfs}/latest/"
             ):
-                correct_map["btag"] = correctionlib.CorrectionSet.from_file(
-                    f"/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/{_btv_cvmfs}/latest/btagging.json.gz"
-                )
-                correct_map["ctag"] = correctionlib.CorrectionSet.from_file(
-                    f"/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/{_btv_cvmfs}/latest/ctagging.json.gz"
-                )
+                if "btag" not in correct_map.keys():
+                    correct_map["btag"] = correctionlib.CorrectionSet.from_file(
+                        f"/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/{_btv_cvmfs}/latest/btagging.json.gz"
+                    )
+                if "ctag" not in correct_map.keys():
+                    correct_map["ctag"] = correctionlib.CorrectionSet.from_file(
+                        f"/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/{_btv_cvmfs}/latest/ctagging.json.gz"
+                    )
             else:
                 correct_map["btag"] = {}
                 correct_map["ctag"] = {}
@@ -201,41 +195,20 @@ def load_SF(year, campaign, selMod="default", syst=False):
                                 )
 
         ## lepton SFs
-        elif SF == "MUO" or SF == "EGM":
+        elif SF == "MUO":
             correct_map["MUO_cfg"] = {
                 mu: f
                 for mu, f in conf["MUO"].items()
                 if "mu" in mu and "_json" not in mu
             }
-            correct_map["EGM_cfg"] = {
-                e: f for e, f in conf["EGM"].items() if "ele" in e and "_json" not in e
-            }
-            ## muon
             _muo_cvmfs = _cvmfs_dir(campaign, "MUO")
             _mu_path = f"/cvmfs/cms-griddata.cern.ch/cat/metadata/MUO/{_muo_cvmfs}/latest/muon_Z.json.gz"
             if os.path.exists(_mu_path):
                 correct_map["MUO"] = correctionlib.CorrectionSet.from_file(_mu_path)
-            ## electron
-            _egm_cvmfs = _cvmfs_dir(campaign, "EGM")
-            for _ele_file, _ele_map in {
-                "electron": "EGM",
-                "electronHlt": "EGM_HLT",
-            }.items():
-                _ele_path = f"/cvmfs/cms-griddata.cern.ch/cat/metadata/EGM/{_egm_cvmfs}/latest/{_ele_file}.json.gz"
-                if not os.path.exists(_ele_path):
-                    _ele_path = f"src/BTVNanoCommissioning/data/EGM/{_egm_cvmfs}/latest/{_ele_file}.json.gz"
-                if os.path.exists(_ele_path):
-                    correct_map[_ele_map] = correctionlib.CorrectionSet.from_file(
-                        _ele_path
-                    )
             ## json
             if any(np.char.find(np.array(list(conf["MUO"].keys())), "mu_json") != -1):
                 correct_map["MUO"] = correctionlib.CorrectionSet.from_file(
                     f"src/BTVNanoCommissioning/data/MUO/{_muo_cvmfs}/latest/{conf['MUO']['mu_json']}"
-                )
-            if any(np.char.find(np.array(list(conf["EGM"].keys())), "ele_json") != -1):
-                correct_map["EGM"] = correctionlib.CorrectionSet.from_file(
-                    f"src/BTVNanoCommissioning/data/EGM/{_egm_cvmfs}/latest/{conf['EGM']['ele_json']}"
                 )
 
             ## check if any custom corrections needed
@@ -244,9 +217,6 @@ def load_SF(year, campaign, selMod="default", syst=False):
                 "histo.json" in "\t".join(list(conf["MUO"].values()))
                 or "histo.txt" in "\t".join(list(conf["MUO"].values()))
                 or "histo.root" in "\t".join(list(conf["MUO"].values()))
-                or "histo.json" in "\t".join(list(conf["EGM"].values()))
-                or "histo.txt" in "\t".join(list(conf["EGM"].values()))
-                or "histo.root" in "\t".join(list(conf["EGM"].values()))
             ):
                 _mu_path = f"BTVNanoCommissioning.data.MUO.{campaign}"
                 ext = extractor()
@@ -291,7 +261,35 @@ def load_SF(year, campaign, selMod="default", syst=False):
                         )
                 ext.finalize()
                 correct_map["MUO_custom"] = ext.make_evaluator()
+        elif SF == "EGM":
+            correct_map["EGM_cfg"] = {
+                e: f for e, f in conf["EGM"].items() if "ele" in e and "_json" not in e
+            }
+            _egm_cvmfs = _cvmfs_dir(campaign, "EGM")
+            for _ele_file, _ele_map in {
+                "electron": "EGM",
+                "electronHlt": "EGM_HLT",
+            }.items():
+                _ele_path = f"/cvmfs/cms-griddata.cern.ch/cat/metadata/EGM/{_egm_cvmfs}/latest/{_ele_file}.json.gz"
+                if not os.path.exists(_ele_path):
+                    _ele_path = f"src/BTVNanoCommissioning/data/EGM/{_egm_cvmfs}/latest/{_ele_file}.json.gz"
+                if os.path.exists(_ele_path):
+                    correct_map[_ele_map] = correctionlib.CorrectionSet.from_file(
+                        _ele_path
+                    )
+            ## json
+            if any(np.char.find(np.array(list(conf["EGM"].keys())), "ele_json") != -1):
+                correct_map["EGM"] = correctionlib.CorrectionSet.from_file(
+                    f"src/BTVNanoCommissioning/data/EGM/{_egm_cvmfs}/latest/{conf['EGM']['ele_json']}"
+                )
 
+            ## check if any custom corrections needed
+            # FIXME: (some low pT muons not supported in CMS analysis corrections at the moment)
+            if (
+                "histo.json" in "\t".join(list(conf["EGM"].values()))
+                or "histo.txt" in "\t".join(list(conf["EGM"].values()))
+                or "histo.root" in "\t".join(list(conf["EGM"].values()))
+            ):
                 _ele_path = f"BTVNanoCommissioning.data.EGM.{campaign}"
                 ext = extractor()
                 with contextlib.ExitStack() as stack:
@@ -341,7 +339,7 @@ def load_SF(year, campaign, selMod="default", syst=False):
                 correct_map["muonSS"] = correctionlib.CorrectionSet.from_file(_mu_path)
         elif SF == "electronSS":
             _eless_cvmfs = _cvmfs_dir(campaign, "electronSS")
-            _ele_path = f"/cvmfs/cms-griddata.cern.ch/cat/metadata/EGM/{_eless_cvmfs}/latest/electronSS_EtDependent{'_v1' if year == '2024' else ''}.json.gz"
+            _ele_path = f"/cvmfs/cms-griddata.cern.ch/cat/metadata/EGM/{_eless_cvmfs}/latest/electronSS_EtDependent.json.gz"
             if not os.path.exists(_ele_path):
                 _ele_path = f"src/BTVNanoCommissioning/data/EGM/{_eless_cvmfs}/latest/electronSS_EtDependent.json.gz"
             if os.path.exists(_ele_path):
@@ -510,7 +508,7 @@ def load_lumi(campaign):
     FileNotFoundError: If the luminosity mask file does not exist.
     """
 
-    _lumi_path = f'/cvmfs/cms-griddata.cern.ch/cat/metadata/DC/Collisions{campaign[-2:]}/latest/{config[campaign]["default"]["DC"]}'
+    _lumi_path = f"/cvmfs/cms-griddata.cern.ch/cat/metadata/DC/Collisions{campaign[-2:]}/latest/{config[campaign]['default']['DC']}"
     if os.path.exists(_lumi_path):
         return LumiMask(_lumi_path)
     else:
@@ -521,7 +519,7 @@ def load_lumi(campaign):
             return LumiMask(filename)
 
 
-# #FIXME JEC run-number ad-hoc boundary fix
+# FIXME: JEC run-number ad-hoc boundary fix
 # See: https://cms-talk.web.cern.ch/t/bug-in-2025-jerc-json-file/47675
 # In March 2026, there is a bug in the JEC corrections, as
 # correctionlib bins are half-open [low, high), so the last run in each
@@ -757,9 +755,21 @@ def get_JER(
     j (jets): jet collection
     """
 
-    JERSF = correct_map["JME"][f"{jername}_ScaleFactor_{jet_algo}"]
-    JERSF_input = get_corr_inputs(j, JERSF, jersyst)
-    j["JERSF"] = JERSF.evaluate(*JERSF_input)
+    # New JERC format (2026): ScaleFactor and SFUncertainty are separate keys,
+    # both taking (JetEta, JetPt) with no systematic string argument.
+    # Variations are computed as SF * (1 ± SFUncertainty).
+    JERSF_corr = correct_map["JME"][f"{jername}_ScaleFactor_{jet_algo}"]
+    sf_nom = JERSF_corr.evaluate(*get_corr_inputs(j, JERSF_corr))
+
+    JERSF_unc_corr = correct_map["JME"][f"{jername}_SFUncertainty_{jet_algo}"]
+    sf_unc = JERSF_unc_corr.evaluate(*get_corr_inputs(j, JERSF_unc_corr))
+
+    if jersyst == "up":
+        j["JERSF"] = sf_nom * (1 + sf_unc)
+    elif jersyst == "down":
+        j["JERSF"] = sf_nom * (1 - sf_unc)
+    else:
+        j["JERSF"] = sf_nom
 
     JERptres = correct_map["JME"][f"{jername}_PtResolution_{jet_algo}"]
     JERptres_input = get_corr_inputs(j, JERptres)
@@ -812,8 +822,7 @@ def _infer_jec_jet_algo(correct_map, jecname):
         return available[0].replace(f"{jecname}_L1L2L3Res_", "")
 
     raise KeyError(
-        f"No L1L2L3Res JEC key found for '{jecname}'. "
-        f"Available matches: {available}"
+        f"No L1L2L3Res JEC key found for '{jecname}'. Available matches: {available}"
     )
 
 
@@ -1030,7 +1039,9 @@ def JME_shifts(
             jer_split_id = jerc_id_arr[3]
         else:
             jer_split_id = "total"  # Default case
-
+        if systematic == "all":
+            jes_sources_id = "full"
+            jer_split_id = "split"
     jecname = ""
     if "JME" in correct_map.keys():
         ## correctionlib
@@ -1338,26 +1349,26 @@ def JME_shifts(
                                 jer_bin_high = jer_bins[jer_bin_name][1]
 
                                 jer_shifted_pt = np.where(
-                                    (j["eta"] >= jer_bin_low)
-                                    & (j["eta"] < jer_bin_high),
+                                    (np.abs(j["eta"]) >= jer_bin_low)
+                                    & (np.abs(j["eta"]) < jer_bin_high),
                                     j[f"pt_JECnom_JER{var}"],
                                     j["pt_JECnom_JERnom"],
                                 )
                                 jer_shifted_mass = np.where(
-                                    (j["eta"] >= jer_bin_low)
-                                    & (j["eta"] < jer_bin_high),
+                                    (np.abs(j["eta"]) >= jer_bin_low)
+                                    & (np.abs(j["eta"]) < jer_bin_high),
                                     j[f"mass_JECnom_JER{var}"],
                                     j["mass_JECnom_JERnom"],
                                 )
                                 _t1jets_var["pt"] = np.where(
-                                    (_t1jets_var["eta"] >= jer_bin_low)
-                                    & (_t1jets_var["eta"] < jer_bin_high),
+                                    (np.abs(_t1jets_var["eta"]) >= jer_bin_low)
+                                    & (np.abs(_t1jets_var["eta"]) < jer_bin_high),
                                     _t1jets_var[f"pt_JECnom_JER{var}"],
                                     _t1jets_var["pt_JECnom_JERnom"],
                                 )
                                 _t1jets_var["pt"] = np.where(
-                                    (_t1jets_var["eta"] >= jer_bin_low)
-                                    & (_t1jets_var["eta"] < jer_bin_high),
+                                    (np.abs(_t1jets_var["eta"]) >= jer_bin_low)
+                                    & (np.abs(_t1jets_var["eta"]) < jer_bin_high),
                                     _t1jets_var["pt_noMu_fullcorr"],
                                     t1jets["pt_noMu_fullcorr"],
                                 )
@@ -1909,7 +1920,6 @@ def EGM_shifts(shifts, correct_map, events, isRealData, systematic=False):
     Adapted from this example of electron SS correction usage:
     https://gitlab.cern.ch/cms-analysis-corrections/EGM/examples/-/blob/latest/egmScaleAndSmearingExample.py
     """
-
     ele = events.Electron
     n_ele = ak.num(ele)
     events_run = ak.flatten(ak.broadcast_arrays(events.run, ele.eta)[0])
@@ -2110,7 +2120,7 @@ def puwei(nPU, correct_map, weights, syst=False):
             weights.add("puweight", correct_map["LUM"][central_key](nPU))
 
 
-def btagSFs(jet, correct_map, weights, SFtype, syst=False):
+def btagSFs(event, correct_map, weights, SFtype, syst=False):
     """
     Apply b-tagging scale factors (SFs) to a single jet.
 
@@ -2118,10 +2128,10 @@ def btagSFs(jet, correct_map, weights, SFtype, syst=False):
     It can optionally apply systematic variations.
 
     Parameters:
-    jet (dict): A dictionary containing the properties of the jet.
+    event (dict): A dictionary containing the properties of the event.
     correct_map (dict): A dictionary containing correction factors and settings for b-tagging scale factors.x
     weights (coffea.weight.Weight): An instance of coffea's Weight class to store the calculated weights.
-    SFtype (str): The type of scale factor to apply. Only shape-based C, B are supported.
+    SFtype (str): The type of scale factor to apply. Only shape-based C, B and 2D pseudocontinuous BC are supported.
     syst (bool, optional): A flag to indicate whether to apply systematic variations. Default is False.
 
     Returns:
@@ -2131,6 +2141,7 @@ def btagSFs(jet, correct_map, weights, SFtype, syst=False):
     KeyError: If required keys are missing in the correct_map.
     ValueError: If the SFtype is not recognized or supported.
     """
+    jet = event.SelJet
     if SFtype.endswith("C"):
         systlist = [
             "Extrap",
@@ -2169,13 +2180,13 @@ def btagSFs(jet, correct_map, weights, SFtype, syst=False):
         for nj in range(ak.num(alljet.pt)[0]):
             jet = alljet[:, nj]
             masknone = ak.is_none(jet.pt)
-            jet.btagDeepFlavCvL = ak.fill_none(jet.btagDeepFlavCvL, 0.0)
-            jet.btagDeepFlavCvB = ak.fill_none(jet.btagDeepFlavCvB, 0.0)
-            jet.btagDeepCvL = ak.fill_none(jet.btagDeepCvL, 0.0)
-            jet.btagDeepCvB = ak.fill_none(jet.btagDeepCvB, 0.0)
             jet.hadronFlavour = ak.fill_none(jet.hadronFlavour, 0)
-            if "correctionlib" in str(type(correct_map["ctag"])):
+            if "ctag" in correct_map.keys() and "correctionlib" in str(
+                type(correct_map["ctag"])
+            ):
                 if SFtype == "DeepJetC":
+                    jet.btagDeepFlavCvL = ak.fill_none(jet.btagDeepFlavCvL, 0.0)
+                    jet.btagDeepFlavCvB = ak.fill_none(jet.btagDeepFlavCvB, 0.0)
                     tmp_sfs = np.where(
                         masknone,
                         1.0,
@@ -2207,7 +2218,9 @@ def btagSFs(jet, correct_map, weights, SFtype, syst=False):
                                 jet.btagDeepFlavCvB,
                             ),
                         )
-                if SFtype == "DeepCSVC":
+                elif SFtype == "DeepCSVC":
+                    jet.btagDeepCvL = ak.fill_none(jet.btagDeepCvL, 0.0)
+                    jet.btagDeepCvB = ak.fill_none(jet.btagDeepCvB, 0.0)
                     tmp_sfs = np.where(
                         masknone,
                         1.0,
@@ -2238,8 +2251,12 @@ def btagSFs(jet, correct_map, weights, SFtype, syst=False):
                             jet.btagDeepCvB,
                         ),
                     )
-            if "correctionlib" in str(type(correct_map["btag"])):
+            elif "btag" in correct_map.keys() and "correctionlib" in str(
+                type(correct_map["btag"])
+            ):
                 if SFtype == "DeepJetB":
+                    jet.btagDeepFlavCvL = ak.fill_none(jet.btagDeepFlavCvL, 0.0)
+                    jet.btagDeepFlavCvB = ak.fill_none(jet.btagDeepFlavCvB, 0.0)
                     tmp_sfs = np.where(
                         masknone,
                         1.0,
@@ -2271,7 +2288,9 @@ def btagSFs(jet, correct_map, weights, SFtype, syst=False):
                                 jet.btagDeepFlavCvB,
                             ),
                         )
-                if SFtype == "DeepCSVB":
+                elif SFtype == "DeepCSVB":
+                    jet.btagDeepCvL = ak.fill_none(jet.btagDeepCvL, 0.0)
+                    jet.btagDeepCvB = ak.fill_none(jet.btagDeepCvB, 0.0)
                     tmp_sfs = np.where(
                         masknone,
                         1.0,
@@ -2468,6 +2487,79 @@ def eleSFs(ele, correct_map, weights, syst=True, isHLT=False):
                                     ele.phi,
                                 ),
                                 sfs_down_high,
+                            )
+                            sfs_up = np.where(masknone, 1.0, sfs_up)
+                            sfs_down = np.where(masknone, 1.0, sfs_down)
+                    elif sf_id.startswith("UL-"):
+                        # UL uses a two-bin reco scheme (RecoBelow20 / RecoAbove20)
+                        sfs_low = np.where(
+                            (ele.pt < 20.0) & ~masknone,
+                            correct_map["EGM"][sf_id].evaluate(
+                                sf_campaign,
+                                "sf",
+                                "RecoBelow20",
+                                ele_etaSC,
+                                ele_pt_low,
+                            ),
+                            1.0,
+                        )
+                        sfs = np.where(
+                            (ele.pt >= 20.0) & ~masknone,
+                            correct_map["EGM"][sf_id].evaluate(
+                                sf_campaign,
+                                "sf",
+                                "RecoAbove20",
+                                ele_etaSC,
+                                ele_pt,
+                            ),
+                            sfs_low,
+                        )
+                        sfs = np.where(masknone, 1.0, sfs)
+
+                        if syst:
+                            sfs_up_low = np.where(
+                                (ele.pt < 20.0) & ~masknone,
+                                correct_map["EGM"][sf_id].evaluate(
+                                    sf_campaign,
+                                    "sfup",
+                                    "RecoBelow20",
+                                    ele_etaSC,
+                                    ele_pt_low,
+                                ),
+                                0.0,
+                            )
+                            sfs_down_low = np.where(
+                                (ele.pt < 20.0) & ~masknone,
+                                correct_map["EGM"][sf_id].evaluate(
+                                    sf_campaign,
+                                    "sfdown",
+                                    "RecoBelow20",
+                                    ele_etaSC,
+                                    ele_pt_low,
+                                ),
+                                0.0,
+                            )
+                            sfs_up = np.where(
+                                (ele.pt >= 20.0) & ~masknone,
+                                correct_map["EGM"][sf_id].evaluate(
+                                    sf_campaign,
+                                    "sfup",
+                                    "RecoAbove20",
+                                    ele_etaSC,
+                                    ele_pt,
+                                ),
+                                sfs_up_low,
+                            )
+                            sfs_down = np.where(
+                                (ele.pt >= 20.0) & ~masknone,
+                                correct_map["EGM"][sf_id].evaluate(
+                                    sf_campaign,
+                                    "sfdown",
+                                    "RecoAbove20",
+                                    ele_etaSC,
+                                    ele_pt,
+                                ),
+                                sfs_down_low,
                             )
                             sfs_up = np.where(masknone, 1.0, sfs_up)
                             sfs_down = np.where(masknone, 1.0, sfs_down)
@@ -3232,9 +3324,10 @@ def _load_frag_decay_maps():
             )
 
             with uproot.open(str(bfrag_path)) as fb, uproot.open(str(cfrag_path)) as fc:
-                with uproot.open(str(bdec_path)) as fbdec, uproot.open(
-                    str(cdec_path)
-                ) as fcdec:
+                with (
+                    uproot.open(str(bdec_path)) as fbdec,
+                    uproot.open(str(cdec_path)) as fcdec,
+                ):
                     payload = {
                         "b_bl_up": _tgraph_fn(fb["fragCP5BLup_smooth"]),
                         "b_bl_dn": _tgraph_fn(fb["fragCP5BLdown_smooth"]),
@@ -3804,15 +3897,15 @@ def common_shifts(self, events):
             ]
 
     if "roccor" in self.SF_map.keys():
-        shifts = Roccor_shifts(shifts, self.SF_map, events, isRealData, False)
+        shifts = Roccor_shifts(shifts, self.SF_map, events, isRealData, self.isSyst)
     elif "muonSS" in self.SF_map.keys():
-        shifts = MUO_shifts(shifts, self.SF_map, events, isRealData, False)
+        shifts = MUO_shifts(shifts, self.SF_map, events, isRealData, self.isSyst)
     else:
         for shift in shifts:
             shift[0]["Muon"] = events.Muon
 
     if "electronSS" in self.SF_map.keys():
-        shifts = EGM_shifts(shifts, self.SF_map, events, isRealData, False)
+        shifts = EGM_shifts(shifts, self.SF_map, events, isRealData, self.isSyst)
     else:
         for shift in shifts:
             shift[0]["Electron"] = events.Electron
@@ -3892,14 +3985,16 @@ def weight_manager(pruned_ev, SF_map, isSyst, ttbar_reweights=None, campaign=Non
                 syst_wei,
             )
         if "MUO" in SF_map.keys() and "SelMuon" in pruned_ev.fields:
-            muSFs(pruned_ev.SelMuon, SF_map, weights, syst_wei, False)
+            muSFs(pruned_ev.SelMuon, SF_map, weights, syst_wei, True)
         if "EGM" in SF_map.keys() and "SelElectron" in pruned_ev.fields:
             eleSFs(pruned_ev.SelElectron, SF_map, weights, syst_wei, False)
-        if "BTV" in SF_map.keys() and "SelJet" in pruned_ev.fields:
-            btagSFs(pruned_ev.SelJet, SF_map, weights, "DeepJetC", syst_wei)
-            btagSFs(pruned_ev.SelJet, SF_map, weights, "DeepJetB", syst_wei)
-            btagSFs(pruned_ev.SelJet, SF_map, weights, "DeepCSVB", syst_wei)
-            btagSFs(pruned_ev.SelJet, SF_map, weights, "DeepCSVC", syst_wei)
+        if (
+            "ctag" in SF_map.keys() or "btag" in SF_map.keys()
+        ) and "SelJet" in pruned_ev.fields:
+            btagSFs(pruned_ev, SF_map, weights, "DeepJetC", syst_wei)
+            btagSFs(pruned_ev, SF_map, weights, "DeepJetB", syst_wei)
+            btagSFs(pruned_ev, SF_map, weights, "DeepCSVB", syst_wei)
+            btagSFs(pruned_ev, SF_map, weights, "DeepCSVC", syst_wei)
 
     return weights
 
