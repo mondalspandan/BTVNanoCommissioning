@@ -305,13 +305,6 @@ if __name__ == "__main__":
     with open(os.path.join(job_dir, "jobnum_list.txt"), "w") as f:
         f.write("\n".join([str(i) for i in range(counter)]))
 
-    job_dashboard.record_submission(
-        job_dir,
-        counter,
-        job_name=args.jobName,
-        output_dir=args.outputDir,
-    )
-
     ## store the jdl file
     jdl_template = """Universe   = vanilla
 Executable = {executable}
@@ -360,7 +353,44 @@ Queue JOBNUM from {jobnum_file}
         print("Submitting without spooling due to --noSpool option.")
         spool = ""
     if args.submit:
-        os.system(f"condor_submit {spool} {job_dir}/submit.jdl")
+        submit_command = ["condor_submit"]
+        if spool:
+            submit_command.append(spool)
+        submit_command.append(f"{job_dir}/submit.jdl")
+        completed = subprocess.run(
+            submit_command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        submit_output = "\n".join(
+            part
+            for part in [completed.stdout.strip(), completed.stderr.strip()]
+            if part
+        )
+        if submit_output:
+            print(submit_output)
+        if completed.returncode != 0:
+            raise SystemExit(
+                f"condor_submit failed with return code {completed.returncode}"
+            )
+        submission = job_dashboard.parse_condor_submit_output(submit_output)
+        if submission is None:
+            raise SystemExit(
+                "condor_submit returned success but did not confirm a submitted cluster"
+            )
+        if submission["count"] != counter:
+            raise SystemExit(
+                "condor_submit reported "
+                f"{submission['count']} submitted jobs; expected {counter}"
+            )
+        job_dashboard.record_submission(
+            job_dir,
+            counter,
+            job_name=args.jobName,
+            output_dir=args.outputDir,
+            cluster_id=submission["cluster_id"],
+        )
     else:
         print(
             f"Setup completed. Now submit the condor jobs by:\n  condor_submit {spool} {job_dir}/submit.jdl"

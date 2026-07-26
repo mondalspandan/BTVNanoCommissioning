@@ -15,7 +15,11 @@ from BTVNanoCommissioning.helpers.update_branch import missing_branch
 from BTVNanoCommissioning.utils.histogramming.histogrammer import (
     histogrammer,
 )
-from BTVNanoCommissioning.utils.array_writer import array_writer
+from BTVNanoCommissioning.utils.array_writer import (
+    array_writer,
+    add_canonical_met,
+    canonical_met_collection,
+)
 from BTVNanoCommissioning.utils.selection import (
     HLT_helper,
     jet_id,
@@ -294,31 +298,16 @@ class NanoProcessor(processor.ProcessorABC):
             },
             with_name="PtEtaPhiMLorentzVector",
         )
-        if (
-            "Run3" not in self._campaign
-            and "Summer22" not in self._campaign
-            and "Summer23" not in self._campaign
-            and "Summer24" not in self._campaign
-        ):
-            MET = ak.zip(
-                {
-                    "pt": events.MET.pt,
-                    "eta": ak.zeros_like(events.MET.pt),
-                    "phi": events.MET.phi,
-                    "mass": ak.zeros_like(events.MET.pt),
-                },
-                with_name="PtEtaPhiMLorentzVector",
-            )
-        else:
-            MET = ak.zip(
-                {
-                    "pt": events.PuppiMET.pt,
-                    "eta": ak.zeros_like(events.PuppiMET.pt),
-                    "phi": events.PuppiMET.phi,
-                    "mass": ak.zeros_like(events.PuppiMET.pt),
-                },
-                with_name="PtEtaPhiMLorentzVector",
-            )
+        met_collection = canonical_met_collection(events, self._campaign)
+        MET = ak.zip(
+            {
+                "pt": met_collection.pt,
+                "eta": ak.zeros_like(met_collection.pt),
+                "phi": met_collection.phi,
+                "mass": ak.zeros_like(met_collection.pt),
+            },
+            with_name="PtEtaPhiMLorentzVector",
+        )
 
         wmasscut = 55
         if "semitt" in self.selMod:
@@ -417,6 +406,7 @@ class NanoProcessor(processor.ProcessorABC):
         else:
             pruned_ev["osss"] = 1.0
         pruned_ev["njet"] = njet
+        add_canonical_met(pruned_ev, self._campaign)
         pruned_ev["W_transmass"] = wm
         pruned_ev["W_pt"] = wp
         pruned_ev["W_eta"] = sw.eta

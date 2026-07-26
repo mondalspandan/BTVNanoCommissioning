@@ -3,6 +3,27 @@ import numpy as np
 import awkward as ak
 import os, uproot
 
+PUPPI_MET_CAMPAIGN_MARKERS = (
+    "Run3",
+    "Summer22",
+    "Summer23",
+    "Summer24",
+)
+
+
+def canonical_met_collection(events, campaign):
+    if any(marker in campaign for marker in PUPPI_MET_CAMPAIGN_MARKERS):
+        return events.PuppiMET
+    return events.MET
+
+
+def add_canonical_met(events, campaign):
+    met = canonical_met_collection(events, campaign)
+    events["MET_pt"] = met.pt
+    events["MET_phi"] = met.phi
+    return met
+
+
 arraySchema = {
     "CFM": [
         "SelJet_btag",
@@ -31,8 +52,8 @@ arraySchema = {
         "SelJet_partonFlavour",
         "SelJet_isMuonJet",
         "njet",
-        "PuppiMET_pt",
-        "PuppiMET_phi",
+        "MET_pt",
+        "MET_phi",
         "dijet_pt",
         "dijet_eta",
         "dijet_phi",

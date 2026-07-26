@@ -16,7 +16,7 @@ from BTVNanoCommissioning.utils.histogramming.histogrammer import (
     histogrammer,
     histo_writer,
 )
-from BTVNanoCommissioning.utils.array_writer import array_writer
+from BTVNanoCommissioning.utils.array_writer import array_writer, add_canonical_met
 from BTVNanoCommissioning.utils.selection import (
     HLT_helper,
     jet_id,
@@ -294,18 +294,7 @@ class NanoProcessor(processor.ProcessorABC):
         pruned_ev["dilep", "mass"] = pruned_ev.dilep.mass
         pruned_ev["njet"] = ak.count(event_jet[event_level].pt, axis=1)
 
-        # MET
-        if (
-            "Run3" in self._campaign
-            or "Summer22" in self._campaign
-            or "Summer23" in self._campaign
-            or "Summer24" in self._campaign
-        ):
-            pruned_ev["MET_pt"] = pruned_ev.PuppiMET.pt
-            pruned_ev["MET_phi"] = pruned_ev.PuppiMET.phi
-        else:
-            pruned_ev["MET_pt"] = pruned_ev.MET.pt
-            pruned_ev["MET_phi"] = pruned_ev.MET.phi
+        add_canonical_met(pruned_ev, self._campaign)
 
         # Dijet properties
         two_jets_mask = ak.num(pruned_ev.SelJet) >= 2
@@ -392,7 +381,7 @@ class NanoProcessor(processor.ProcessorABC):
                 systematics,
                 dataset,
                 isRealData,
-                schema="CFM",  # doOnly=["SelJet","njet","PuppiMET"]
+                schema="CFM",  # doOnly=["SelJet", "njet", "MET"]
             )
 
         return {dataset: output}

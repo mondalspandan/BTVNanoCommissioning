@@ -64,7 +64,10 @@ ICONS = {
 }
 CONDOR_EVENT_RE = re.compile(r"^(\d{3}) \((\d+)\.(\d+)\.\d+\)")
 CONDOR_CLUSTER_RE = re.compile(r"(?:job|hadd)\.(?:log|out|err)_(\d+)(?:-\d+)?$")
-CONDOR_SUBMIT_RE = re.compile(r"\b\d+\s+job\(s\)\s+submitted\s+to\b", re.IGNORECASE)
+CONDOR_SUBMIT_RE = re.compile(
+    r"\b(?P<count>\d+)\s+job\(s\)\s+submitted\s+to\s+cluster\s+" r"(?P<cluster>\d+)\b",
+    re.IGNORECASE,
+)
 AUTOMATION_MAX_SUBMIT_RETRIES = 20
 AUTOMATION_SUBMIT_RETRY_SHORT_ATTEMPTS = 5
 AUTOMATION_SUBMIT_RETRY_SHORT_DELAY = 30.0
@@ -74,6 +77,16 @@ AUTOMATION_OUTPUT_LIMIT = 1200
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def parse_condor_submit_output(output: str) -> dict | None:
+    match = CONDOR_SUBMIT_RE.search(output or "")
+    if not match:
+        return None
+    return {
+        "count": int(match.group("count")),
+        "cluster_id": int(match.group("cluster")),
+    }
 
 
 def _status_path(job_dir: str) -> str:
@@ -99,6 +112,7 @@ def _default_status(job_dir: str, job_name: str = "", output_dir: str = "") -> d
         "created_at": "",
         "updated_at": "",
         "submitted_jobs": None,
+        "submission_cluster_id": None,
         "checked_outputs": {
             "status": "",
             "missing_outputs": None,
@@ -109,8 +123,10 @@ def _default_status(job_dir: str, job_name: str = "", output_dir: str = "") -> d
             "count": None,
             "job_ids": [],
             "pending_reset": False,
+            "cluster_id": None,
         },
         "hadd_jobs_submitted": None,
+        "hadd_submission_cluster_id": None,
         "hadd_jobs_checked": {
             "status": "",
             "failed": None,
@@ -648,11 +664,17 @@ def record_processing_complete(job_dir: str, summary: str = "All done") -> dict:
 
 
 def record_submission(
-    job_dir: str, total_jobs: int, job_name: str = "", output_dir: str = ""
+    job_dir: str,
+    total_jobs: int,
+    job_name: str = "",
+    output_dir: str = "",
+    cluster_id: int | None = None,
 ) -> dict:
     data = ensure_status(job_dir, job_name=job_name, output_dir=output_dir)
     data["submitted_jobs"] = int(total_jobs)
-    _append_stage(data, "Submitted", f"{total_jobs} jobs", "")
+    data["submission_cluster_id"] = cluster_id
+    detail = f"cluster {cluster_id}" if cluster_id is not None else ""
+    _append_stage(data, "Submitted", f"{total_jobs} jobs", detail)
     save_status(job_dir, data)
     return data
 
@@ -676,6 +698,7 @@ def record_checked_outputs(
         "count": None,
         "job_ids": [],
         "pending_reset": False,
+        "cluster_id": None,
     }
     if missing_jobs == 0:
         _append_stage(
@@ -692,23 +715,31 @@ def record_checked_outputs(
     return data
 
 
-def record_resubmitted_jobs(job_dir: str, job_ids: list) -> dict:
+def record_resubmitted_jobs(
+    job_dir: str, job_ids: list, cluster_id: int | None = None
+) -> dict:
     data = load_status(job_dir)
     count = len(job_ids)
     data["resubmitted_jobs"] = {
         "count": count,
         "job_ids": [str(job_id) for job_id in job_ids],
         "pending_reset": True,
+        "cluster_id": cluster_id,
     }
-    _append_stage(data, "Jobs resubmitted", f"{count} jobs resubmitted", "")
+    detail = f"cluster {cluster_id}" if cluster_id is not None else ""
+    _append_stage(data, "Jobs resubmitted", f"{count} jobs resubmitted", detail)
     save_status(job_dir, data)
     return data
 
 
-def record_hadd_submitted(job_dir: str, n_jobs: int) -> dict:
+def record_hadd_submitted(
+    job_dir: str, n_jobs: int, cluster_id: int | None = None
+) -> dict:
     data = load_status(job_dir)
     data["hadd_jobs_submitted"] = int(n_jobs)
-    _append_stage(data, "Hadd jobs submitted", f"{n_jobs} jobs submitted", "")
+    data["hadd_submission_cluster_id"] = cluster_id
+    detail = f"cluster {cluster_id}" if cluster_id is not None else ""
+    _append_stage(data, "Hadd jobs submitted", f"{n_jobs} jobs submitted", detail)
     save_status(job_dir, data)
     return data
 
@@ -1065,9 +1096,9 @@ def read_hadd_condor_status(job_dir: str) -> dict:
     )
 
 
-def _condor_queue_empty(cluster: int | None) -> bool | None:
+def _condor_queue_state(cluster: int | None) -> str:
     if cluster is None:
-        return None
+        return "unknown"
     try:
         completed = subprocess.run(
             ["condor_q", str(cluster), "-json"],
@@ -1076,10 +1107,25 @@ def _condor_queue_empty(cluster: int | None) -> bool | None:
             check=False,
         )
     except OSError:
-        return None
+        return "error"
     if completed.returncode != 0:
-        return None
-    return not bool((completed.stdout or "").strip())
+        return "error"
+    try:
+        jobs = json.loads(completed.stdout or "")
+    except (json.JSONDecodeError, TypeError):
+        return "error"
+    if not isinstance(jobs, list):
+        return "error"
+    return "empty" if len(jobs) == 0 else "present"
+
+
+def _condor_queue_empty(cluster: int | None) -> bool | None:
+    state = _condor_queue_state(cluster)
+    if state == "empty":
+        return True
+    if state == "present":
+        return False
+    return None
 
 
 def _script_path(script_name: str) -> str:

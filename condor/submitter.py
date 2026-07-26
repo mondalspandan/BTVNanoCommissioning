@@ -7,25 +7,44 @@ import re
 import subprocess
 import time
 
+CONDOR_SUBMIT_SUCCESS_RE = re.compile(
+    r"\b(?P<count>\d+)\s+job\(s\)\s+submitted\s+to\s+cluster\s+" r"(?P<cluster>\d+)\b",
+    re.IGNORECASE,
+)
+CONDOR_SUBMIT_PERMANENT_ERROR_RE = re.compile(
+    r"(failed to open .*\.jdl|no such file|invalid submit|submit file .*error|"
+    r"syntax error)",
+    re.IGNORECASE,
+)
+DEFAULT_SUBMIT_ATTEMPTS = 5
+MAX_SUBMIT_RETRY_DELAY_SECONDS = 300
+
 
 def make_tarfile(output_filename, source_dir, exclude_dirs=[]):
-    with tarfile.open(output_filename, "w:gz") as tar:
-        for item in os.listdir(source_dir):
-            if item in exclude_dirs:
-                continue
-            item_path = os.path.join(source_dir, item)
-            if os.path.isdir(item_path):
-                for root, dirs, files in os.walk(item_path):
-                    # Ensure we also skip any nested excluded directories
-                    dirs[:] = [d for d in dirs if d not in exclude_dirs]
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        tar.add(
-                            file_path, arcname=os.path.relpath(file_path, source_dir)
-                        )
-            else:
-                # Add top-level files
-                tar.add(item_path, arcname=item)
+    temporary_filename = f"{output_filename}.tmp"
+    try:
+        with tarfile.open(temporary_filename, "w:gz") as tar:
+            for item in os.listdir(source_dir):
+                if item in exclude_dirs:
+                    continue
+                item_path = os.path.join(source_dir, item)
+                if os.path.isdir(item_path):
+                    for root, dirs, files in os.walk(item_path):
+                        # Ensure we also skip any nested excluded directories
+                        dirs[:] = [d for d in dirs if d not in exclude_dirs]
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            tar.add(
+                                file_path,
+                                arcname=os.path.relpath(file_path, source_dir),
+                            )
+                else:
+                    # Add top-level files
+                    tar.add(item_path, arcname=item)
+        os.replace(temporary_filename, output_filename)
+    finally:
+        if os.path.exists(temporary_filename):
+            os.remove(temporary_filename)
 
 
 def get_condor_submitter_parser(parser, require_job_args=True):
@@ -68,6 +87,20 @@ def get_condor_submitter_parser(parser, require_job_args=True):
         action="store_true",
         help="Reuse an existing BTVNanoCommissioning.tar.gz without prompting to recreate it.",
     )
+    parser.add_argument(
+        "--rebuildTarball",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--submitRetries",
+        type=int,
+        default=DEFAULT_SUBMIT_ATTEMPTS,
+        help=(
+            "Maximum number of condor_submit attempts before failing "
+            "(default: %(default)s)."
+        ),
+    )
     return parser
 
 
@@ -95,30 +128,69 @@ def prompt_rebuild_tarball():
         print("Please answer with y/Y or n/N.")
 
 
-def submit_condor_with_retry(submit_jdl_path, retry_delay_seconds=30):
-    success_pattern = re.compile(
-        r"\b\d+\s+job\(s\)\s+submitted to cluster\b", re.IGNORECASE
-    )
-    attempt = 1
-    while True:
-        result = subprocess.run(
-            ["condor_submit", submit_jdl_path],
-            capture_output=True,
-            text=True,
-        )
+def submit_condor_with_retry(
+    submit_jdl_path,
+    max_attempts=DEFAULT_SUBMIT_ATTEMPTS,
+    retry_delay_seconds=30,
+    expected_jobs=None,
+):
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1")
+
+    last_output = ""
+    last_returncode = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = subprocess.run(
+                ["condor_submit", submit_jdl_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as exc:
+            raise RuntimeError(f"Could not execute condor_submit: {exc}") from exc
+
         output = "\n".join(
             part for part in [result.stdout.strip(), result.stderr.strip()] if part
         )
+        last_output = output
+        last_returncode = result.returncode
         if output:
             print(output)
-        if result.returncode == 0 and success_pattern.search(output):
-            return
+
+        match = CONDOR_SUBMIT_SUCCESS_RE.search(output)
+        if result.returncode == 0 and match:
+            submitted_jobs = int(match.group("count"))
+            if expected_jobs is not None and submitted_jobs != expected_jobs:
+                raise RuntimeError(
+                    "condor_submit reported "
+                    f"{submitted_jobs} submitted jobs; expected {expected_jobs}"
+                )
+            return int(match.group("cluster"))
+
+        if CONDOR_SUBMIT_PERMANENT_ERROR_RE.search(output):
+            raise RuntimeError(
+                f"condor_submit failed with a permanent error on attempt {attempt}: "
+                f"{output or 'no output'}"
+            )
+
+        if attempt == max_attempts:
+            break
+
+        delay = min(
+            retry_delay_seconds * (2 ** (attempt - 1)),
+            MAX_SUBMIT_RETRY_DELAY_SECONDS,
+        )
         print(
             f"condor_submit did not report a successful submission on attempt {attempt}; "
-            f"retrying in {retry_delay_seconds}s."
+            f"retrying in {delay}s."
         )
-        time.sleep(retry_delay_seconds)
-        attempt += 1
+        time.sleep(delay)
+
+    raise RuntimeError(
+        f"condor_submit failed after {max_attempts} attempts "
+        f"(last return code: {last_returncode}): {last_output or 'no output'}"
+    )
 
 
 def get_main_parser():
@@ -260,15 +332,20 @@ if __name__ == "__main__":
     else:
         print("Tarring BTVNanoCommissioning directory...")
 
+        if args.reuseTarball and args.rebuildTarball:
+            raise ValueError(
+                "--reuseTarball and --rebuildTarball are mutually exclusive"
+            )
+
         skip_tar = False
         if os.path.exists("BTVNanoCommissioning.tar.gz"):
-            if args.reuseTarball:
+            if args.rebuildTarball:
+                print("Rebuilding BTVNanoCommissioning.tar.gz")
+            elif args.reuseTarball:
                 print("Reusing existing BTVNanoCommissioning.tar.gz")
                 skip_tar = True
             else:
                 skip_tar = prompt_rebuild_tarball()
-                if not skip_tar:
-                    os.remove("BTVNanoCommissioning.tar.gz")
 
         if not skip_tar:
             exclude_list = ["jsonpog-integration", "BTVNanoCommissioning.egg-info"]
@@ -348,13 +425,6 @@ if __name__ == "__main__":
     with open(os.path.join(job_dir, "jobnum_list.txt"), "w") as f:
         f.write("\n".join([str(i) for i in range(counter)]))
 
-    job_dashboard.record_submission(
-        job_dir,
-        counter,
-        job_name=args.jobName,
-        output_dir=args.outputDir,
-    )
-
     ## store the jdl file
     jdl_template = """Universe   = vanilla
 Executable = {executable}
@@ -392,7 +462,18 @@ Queue JOBNUM from {jobnum_file}
     )
     with open(os.path.join(job_dir, "submit.jdl"), "w") as f:
         f.write(jdl_template)
-    submit_condor_with_retry(f"{job_dir}/submit.jdl")
+    cluster_id = submit_condor_with_retry(
+        f"{job_dir}/submit.jdl",
+        max_attempts=args.submitRetries,
+        expected_jobs=counter,
+    )
+    job_dashboard.record_submission(
+        job_dir,
+        counter,
+        job_name=args.jobName,
+        output_dir=args.outputDir,
+        cluster_id=cluster_id,
+    )
     # print(
     #     f"Setup completed. Now submit the condor jobs by:\n  condor_submit {job_dir}/submit.jdl"
     # )

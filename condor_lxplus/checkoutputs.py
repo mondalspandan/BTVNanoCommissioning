@@ -1,4 +1,4 @@
-import os, sys, json, concurrent.futures
+import os, sys, json, concurrent.futures, subprocess
 from copy import deepcopy
 from collections import defaultdict
 import time
@@ -161,12 +161,39 @@ with open(f"{jobdir}/resubmit.jdl", "w") as jdlnew:
             towrite = towrite.replace(f'"{current_flavour}"', f'"{next_flavour}"')
         jdlnew.write(towrite)
 
-job_dashboard.record_resubmitted_jobs(jobdir, toresubmit)
-
 print(f"[yellow]Found {len(toresubmit)} missing outputs: {toresubmit}[/]")
 if run_condor:
     print("\n[b]Submitting to condor...[/]")
-    os.system(f"condor_submit {jobdir}/resubmit.jdl")
+    completed = subprocess.run(
+        ["condor_submit", f"{jobdir}/resubmit.jdl"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    submit_output = "\n".join(
+        part for part in [completed.stdout.strip(), completed.stderr.strip()] if part
+    )
+    if submit_output:
+        print(submit_output)
+    if completed.returncode != 0:
+        raise SystemExit(
+            f"condor_submit failed with return code {completed.returncode}"
+        )
+    submission = job_dashboard.parse_condor_submit_output(submit_output)
+    if submission is None:
+        raise SystemExit(
+            "condor_submit returned success but did not confirm a submitted cluster"
+        )
+    if submission["count"] != len(toresubmit):
+        raise SystemExit(
+            "condor_submit reported "
+            f"{submission['count']} submitted jobs; expected {len(toresubmit)}"
+        )
+    job_dashboard.record_resubmitted_jobs(
+        jobdir,
+        toresubmit,
+        cluster_id=submission["cluster_id"],
+    )
 else:
     print("[b]Resubmit with:[/]")
     print(f"condor_submit {jobdir}/resubmit.jdl")

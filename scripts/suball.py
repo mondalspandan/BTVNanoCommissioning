@@ -1,4 +1,4 @@
-import os, argparse, subprocess, shutil, glob
+import os, argparse, subprocess, shutil, glob, tarfile
 from BTVNanoCommissioning.workflows import workflows
 from BTVNanoCommissioning.utils.sample import predefined_sample
 from BTVNanoCommissioning.utils.AK4_parameters import correction_config
@@ -86,6 +86,8 @@ RUNNER_SKIP_KEYS = {
     "jobqueue",
     "nCPU",
     "reuseTarball",
+    "rebuildTarball",
+    "submitRetries",
     "response",
 }
 
@@ -99,6 +101,7 @@ CONDOR_ARG_KEYS = {
     "voms",
     "chunk",
     "skipbadfiles",
+    "submitRetries",
 }
 
 
@@ -173,7 +176,7 @@ def should_refresh_workflow_datasets(
             f"--DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} "
             f"--skipvalidation --overwrite --executor futures -j {args.workers} {response_opt}"
         )
-        os.system(fetch_cmd)
+        subprocess.run(shlex.split(fetch_cmd), check=True)
 
     return refresh_required
 
@@ -209,6 +212,18 @@ def pretty_rule(title):
 
 def pretty_status(emoji, label, message):
     print(f"{emoji} {label}: {message}")
+
+
+def validate_reusable_tarball(path="BTVNanoCommissioning.tar.gz"):
+    if not os.path.isfile(path):
+        raise RuntimeError(f"Expected reusable tarball does not exist: {path}")
+    if not os.access(path, os.R_OK):
+        raise RuntimeError(f"Expected reusable tarball is not readable: {path}")
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            next(iter(archive), None)
+    except (OSError, tarfile.TarError) as exc:
+        raise RuntimeError(f"Reusable tarball is invalid: {path}") from exc
 
 
 def run_local_smoke_test(args, wf, json_path, sample_type):
@@ -518,6 +533,7 @@ if __name__ == "__main__":
         print(f"======>{input_lumi_json} is used for {args.year}")
 
     condor_submit_count = 0
+    reusable_tarball_ready = False
     for wf in scheme[args.scheme]:
         workflow_tag = cfm_workflow_aliases.get(wf, wf)
         allowed_sample_types = (
@@ -667,8 +683,17 @@ if __name__ == "__main__":
                         print(f"⚠️ Running with 100 files limit for MC samples")
 
                 if use_condor:
-                    if condor_submit_count > 0:
-                        command.append("--reuseTarball")
+                    if condor_submit_count == 0 and args.remoteRepo is None:
+                        command.append("--rebuildTarball")
+                    elif condor_submit_count > 0:
+                        if args.remoteRepo is None:
+                            if not reusable_tarball_ready:
+                                raise RuntimeError(
+                                    "Refusing --reuseTarball before the first successful "
+                                    "submission created and validated the tarball"
+                                )
+                            validate_reusable_tarball()
+                            command.append("--reuseTarball")
                     command.extend(
                         [
                             "--jobName",
@@ -693,9 +718,12 @@ if __name__ == "__main__":
                 runner_config = shlex.join(command)
                 if args.debug:
                     print(f"run the workflow: {runner_config}")
-                os.system(runner_config)
+                subprocess.run(command, check=True)
                 if use_condor:
                     condor_submit_count += 1
+                    if args.remoteRepo is None and condor_submit_count == 1:
+                        validate_reusable_tarball()
+                        reusable_tarball_ready = True
 
                 with open(
                     f"config_{args.year}_{args.campaign}_{args.scheme}_{args.version}.txt",

@@ -1,4 +1,4 @@
-import os, sys, json, shutil
+import os, sys, json, shutil, subprocess
 from glob import glob
 from alive_progress import alive_bar
 from rich import print
@@ -155,8 +155,6 @@ else:
         )
         exit()
 
-    if jobdir:
-        job_dashboard.record_hadd_submitted(jobdir, len(cmdlist))
     haddfile = f"{outputdir}/dohadd.sh"
     retry_suffix = ""
 
@@ -170,6 +168,7 @@ if not args.condor:
     print(f"[cyan]bash {haddfile}[/]")
     print("or")
     print(f"[cyan]parallel :::: {haddfile}[/]")
+    sys.exit(0)
 
 # Create condor submission files
 if not jobdir:
@@ -215,12 +214,32 @@ with open(hadd_sub, "w") as f:
         f.write('+JobFlavour = "longlunch"\n')
     f.write(f"queue {len(cmdlist)}\n")
 
-if check and jobdir and len(cmdlist) > 0:
-    job_dashboard.record_hadd_submitted(jobdir, len(cmdlist))
-
-if args.condor:
-    print("\n[b]Submitting to condor...[/]")
-    os.system(f"condor_submit {hadd_sub}")
-else:
-    print("or submit to condor:")
-    print(f"[yellow]condor_submit {hadd_sub}[/]")
+print("\n[b]Submitting to condor...[/]")
+completed = subprocess.run(
+    ["condor_submit", hadd_sub],
+    capture_output=True,
+    text=True,
+    check=False,
+)
+submit_output = "\n".join(
+    part for part in [completed.stdout.strip(), completed.stderr.strip()] if part
+)
+if submit_output:
+    print(submit_output)
+if completed.returncode != 0:
+    raise SystemExit(f"condor_submit failed with return code {completed.returncode}")
+submission = job_dashboard.parse_condor_submit_output(submit_output)
+if submission is None:
+    raise SystemExit(
+        "condor_submit returned success but did not confirm a submitted cluster"
+    )
+if submission["count"] != len(cmdlist):
+    raise SystemExit(
+        "condor_submit reported "
+        f"{submission['count']} submitted jobs; expected {len(cmdlist)}"
+    )
+job_dashboard.record_hadd_submitted(
+    jobdir,
+    len(cmdlist),
+    cluster_id=submission["cluster_id"],
+)
