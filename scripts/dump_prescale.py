@@ -118,13 +118,21 @@ def get_prescale(
 
     outcsv = f"src/BTVNanoCommissioning/data/Prescales/HLTinfo_{HLT}_run{min(runs)}_{max(runs)}.csv"
     if force or not os.path.exists(outcsv):
+        max_prescale = 0.0
         with ThreadPoolExecutor(max_workers=nthreads) as executor:
-            dfs = list(
-                tqdm(
-                    executor.map(process_run, [(run, HLT) for run in runs]),
-                    total=len(runs),
-                )
+            pbar = tqdm(
+                executor.map(process_run, [(run, HLT) for run in runs]),
+                total=len(runs),
             )
+            dfs = []
+            for df in pbar:
+                if df is None:
+                    continue
+                dfs.append(df)
+                current_max = df["totprescval"].max()
+                if pd.notna(current_max):
+                    max_prescale = max(max_prescale, float(current_max))
+                pbar.set_postfix_str(f"Max prescale: {max_prescale:g}")
 
         prescales = pandas.concat(dfs, ignore_index=True)
         if not ignore_csv_output:

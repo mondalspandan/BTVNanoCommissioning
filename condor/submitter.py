@@ -4,6 +4,8 @@ import shutil
 import tarfile
 import argparse
 import re
+import subprocess
+import time
 
 
 def make_tarfile(output_filename, source_dir, exclude_dirs=[]):
@@ -79,6 +81,42 @@ def validate_x509_proxy():
         sys.exit(1)
 
 
+def prompt_rebuild_tarball():
+    while True:
+        user_input = input(
+            "BTVNanoCommissioning.tar.gz already exists, skip the tarring? ([y]/n): "
+        ).strip()
+        if user_input in {"y", "Y"}:
+            return True
+        if user_input in {"n", "N"}:
+            return False
+        print("Please answer with y/Y or n/N.")
+
+
+def submit_condor_with_retry(submit_jdl_path, retry_delay_seconds=30):
+    success_pattern = re.compile(r"\b\d+\s+job\(s\)\s+submitted to cluster\b", re.IGNORECASE)
+    attempt = 1
+    while True:
+        result = subprocess.run(
+            ["condor_submit", submit_jdl_path],
+            capture_output=True,
+            text=True,
+        )
+        output = "\n".join(
+            part for part in [result.stdout.strip(), result.stderr.strip()] if part
+        )
+        if output:
+            print(output)
+        if result.returncode == 0 and success_pattern.search(output):
+            return
+        print(
+            f"condor_submit did not report a successful submission on attempt {attempt}; "
+            f"retrying in {retry_delay_seconds}s."
+        )
+        time.sleep(retry_delay_seconds)
+        attempt += 1
+
+
 def get_main_parser():
     parser = argparse.ArgumentParser(description="Arguments for condor submitter")
     ## Inputs
@@ -138,6 +176,9 @@ def get_main_parser():
             "JEC_reduced",
             "JEC_reduced_JER_split",
             "JEC_total",
+            "JERC_full",
+            "JERC_reduced",
+            "JERC_total",
             "JP_MC",
         ],
         help="Run with systematics (default: %(default)s)",
@@ -178,6 +219,8 @@ def get_main_parser():
 if __name__ == "__main__":
     parser = get_main_parser()
     args = parser.parse_args()
+    if args.isSyst in {"JERC_full", "JERC_reduced", "JERC_total"}:
+        args.isSyst = args.isSyst.replace("JERC", "JEC")
     print("Running with the following options:")
     print(args)
     validate_x509_proxy()
@@ -209,13 +252,8 @@ if __name__ == "__main__":
                 print("Reusing existing BTVNanoCommissioning.tar.gz")
                 skip_tar = True
             else:
-                user_input = input(
-                    "BTVNanoCommissioning.tar.gz already exists, skip the tarring? ([y]/n): "
-                )
-                if user_input.lower() != "n":
-                    skip_tar = True
-                else:
-                    skip_tar = False
+                skip_tar = prompt_rebuild_tarball()
+                if not skip_tar:
                     os.remove("BTVNanoCommissioning.tar.gz")
 
         if not skip_tar:
@@ -236,7 +274,7 @@ if __name__ == "__main__":
             )
 
     # Create job dir
-    job_dir = f"jobs_{args.jobName}"
+    job_dir = f"jobs_{args.jobName}_{args.campaign}"
     if os.path.exists(job_dir):
         user_input = input("Job directory already exists, overwrite? ([y]/n): ")
         if user_input.lower() != "n":
@@ -340,7 +378,7 @@ Queue JOBNUM from {jobnum_file}
     )
     with open(os.path.join(job_dir, "submit.jdl"), "w") as f:
         f.write(jdl_template)
-    os.system(f"condor_submit {job_dir}/submit.jdl")
+    submit_condor_with_retry(f"{job_dir}/submit.jdl")
     # print(
     #     f"Setup completed. Now submit the condor jobs by:\n  condor_submit {job_dir}/submit.jdl"
     # )

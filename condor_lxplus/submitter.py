@@ -128,6 +128,9 @@ def get_main_parser():
             "JEC_reduced",
             "JEC_reduced_JER_split",
             "JEC_total",
+            "JERC_full",
+            "JERC_reduced",
+            "JERC_total",
             "JP_MC",
         ],
         help="Run with systematics, all, weights_only(no JERC uncertainties included),JERC_split, None",
@@ -169,6 +172,8 @@ def get_main_parser():
 if __name__ == "__main__":
     parser = get_main_parser()
     args = parser.parse_args()
+    if args.isSyst in {"JERC_full", "JERC_reduced", "JERC_total"}:
+        args.isSyst = args.isSyst.replace("JERC", "JEC")
     print("Running with the following options:")
     print(args)
 
@@ -204,7 +209,7 @@ if __name__ == "__main__":
             )
     """
     # Create job dir
-    job_dir = f"jobs_{args.jobName}"
+    job_dir = f"jobs_{args.jobName}_{args.campaign}"
     if os.path.exists(job_dir):
         user_input = input("Job directory already exists, overwrite? (y/n): ")
         if user_input.lower() == "y":

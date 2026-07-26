@@ -1,4 +1,4 @@
-import os, argparse
+import os, argparse, subprocess, shutil, glob
 from BTVNanoCommissioning.workflows import workflows
 from BTVNanoCommissioning.utils.sample import predefined_sample
 from BTVNanoCommissioning.utils.AK4_parameters import correction_config
@@ -32,7 +32,7 @@ def condor_mode_requested(argv):
     return False
 
 
-def get_condor_job_name(args, workflow, sample_type):
+def get_condor_submission_name(args, workflow, sample_type):
     return f"condor_{workflow}_{sample_type}"
 
 
@@ -55,6 +55,10 @@ def should_skip_mc_family(sample_type, mc_family):
     if mc_family == "nlo":
         return "LO" in tokens and "NLO" not in tokens
     return False
+
+
+def get_condor_job_dir(args, workflow, sample_type):
+    return f"jobs_{get_condor_submission_name(args, workflow, sample_type)}_{args.campaign}"
 
 
 RUNNER_SKIP_KEYS = {
@@ -81,6 +85,7 @@ RUNNER_SKIP_KEYS = {
     "jobqueue",
     "nCPU",
     "reuseTarball",
+    "response",
 }
 
 
@@ -119,6 +124,171 @@ def should_refresh_dataset(json_file, max_age_minutes=10):
         )
         return True
     return False
+
+
+def workflow_sample_json_path(args, workflow_tag, sample_type):
+    return (
+        f"metadata/{args.campaign}/{sample_type}_{args.campaign}_{args.year}_{workflow_tag}.json"
+    )
+
+
+def should_refresh_workflow_datasets(
+    args,
+    workflow_tag,
+    allowed_sample_types,
+    response_opt,
+    overwrite,
+    sample_types=None,
+):
+    """Check whether any sample JSON needed by a workflow is missing or stale."""
+    refresh_required = bool(args.overwrite)
+    checked_any = False
+
+    candidate_sample_types = (
+        sample_types if sample_types is not None else predefined_sample[workflow_tag].keys()
+    )
+
+    for sample_type in candidate_sample_types:
+        if allowed_sample_types is not None and sample_type not in allowed_sample_types:
+            continue
+        if should_skip_mc_family(sample_type, args.mc):
+            continue
+        if (sample_type != "data" and sample_type != "MC") and (
+            args.scheme == "Validation" or args.validate_workflow
+        ):
+            continue
+
+        checked_any = True
+        json_file = workflow_sample_json_path(args, workflow_tag, sample_type)
+        if should_refresh_dataset(json_file):
+            refresh_required = True
+
+    if not checked_any:
+        return False
+
+    if refresh_required:
+        fetch_cmd = (
+            f"python scripts/fetch.py -c {args.campaign} --from_workflow {workflow_tag} "
+            f"--DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} "
+            f"--skipvalidation --overwrite --executor futures -j {args.workers} {response_opt}"
+        )
+        os.system(fetch_cmd)
+
+    return refresh_required
+
+
+def get_condor_sample_plan(args, wf, workflow_tag, allowed_sample_types):
+    plan = []
+    skipped_existing = []
+    for sample_type in predefined_sample[workflow_tag].keys():
+        if allowed_sample_types is not None and sample_type not in allowed_sample_types:
+            continue
+        if should_skip_mc_family(sample_type, args.mc):
+            continue
+        if (sample_type != "data" and sample_type != "MC") and (
+            args.scheme == "Validation" or args.validate_workflow
+        ):
+            continue
+
+        job_dir = get_condor_job_dir(args, wf, sample_type)
+        if os.path.exists(job_dir):
+            skipped_existing.append((sample_type, job_dir))
+            continue
+        plan.append(sample_type)
+
+    return plan, skipped_existing
+
+
+def pretty_rule(title):
+    width = 78
+    title = f" {title} "
+    side = max((width - len(title)) // 2, 3)
+    return f"{'═' * side}{title}{'═' * side}"
+
+
+def pretty_status(emoji, label, message):
+    print(f"{emoji} {label}: {message}")
+
+
+def run_local_smoke_test(args, wf, json_path, sample_type):
+    test_outputdir = os.path.join(".suball_test_outputs", f"{wf}_{sample_type}")
+    shutil.rmtree(test_outputdir, ignore_errors=True)
+    os.makedirs(os.path.dirname(test_outputdir), exist_ok=True)
+
+    command = [
+        sys.executable,
+        "runner.py",
+        "--wf",
+        wf,
+        "--json",
+        json_path,
+        "--campaign",
+        args.campaign,
+        "--year",
+        str(args.year),
+        "--executor",
+        "iterative",
+        "--limit",
+        "1",
+        "--max",
+        "1",
+        "--outputdir",
+        test_outputdir,
+    ]
+    if args.isArray:
+        command.append("--isArray")
+    if args.skipbadfiles:
+        command.append("--skipbadfiles")
+    if args.only is not None:
+        command.extend(["--only", args.only])
+    if args.isSyst != "False":
+        command.extend(["--isSyst", args.isSyst])
+
+    print()
+    print(pretty_rule(f" Smoke test for {wf} / {sample_type} "))
+    print(f"🔎 Local command: {' '.join(shlex.quote(part) for part in command)}")
+    result = subprocess.run(command)
+
+    coffea_files = glob.glob(os.path.join(test_outputdir, "**", "*.coffea"), recursive=True)
+    root_files = glob.glob(os.path.join(test_outputdir, "**", "*.root"), recursive=True)
+
+    if result.returncode != 0:
+        print(pretty_rule(f" Smoke test failed for {wf} / {sample_type} "))
+        pretty_status("❌", "Exit code", str(result.returncode))
+        print(
+            f"❌ Submission check failed for {wf}; aborting before Condor submission."
+        )
+        shutil.rmtree(test_outputdir, ignore_errors=True)
+        sys.exit(1)
+    pretty_status("✅", "Exit code", "0")
+    if len(coffea_files) == 0:
+        print(pretty_rule(f" Smoke test failed for {wf} / {sample_type} "))
+        print(f"❌ Output .coffea exists: no")
+        print(
+            f"❌ Submission check failed for {wf}; aborting before Condor submission."
+        )
+        shutil.rmtree(test_outputdir, ignore_errors=True)
+        sys.exit(1)
+    pretty_status("✅", "Output .coffea exists", "yes")
+    if args.isArray and len(root_files) == 0:
+        print(pretty_rule(f" Smoke test failed for {wf} / {sample_type} "))
+        print(f"❌ Output .root exists: no")
+        print(
+            f"❌ Submission check failed for {wf}; aborting before Condor submission."
+        )
+        shutil.rmtree(test_outputdir, ignore_errors=True)
+        sys.exit(1)
+    if args.isArray:
+        pretty_status("✅", "Output .root exists", "yes")
+    else:
+        pretty_status("ℹ️", "Output .root exists", "not requested (--isArray not set)")
+
+    shutil.rmtree(test_outputdir, ignore_errors=True)
+    parent = os.path.dirname(test_outputdir)
+    if os.path.isdir(parent) and not os.listdir(parent):
+        os.rmdir(parent)
+    print(pretty_rule(f" Smoke test passed for {wf} / {sample_type} "))
+    print()
 
 
 # Get lumi
@@ -237,6 +407,11 @@ if __name__ == "__main__":
         default=5,
         help="Number of non-data files to put into each Condor job (default: %(default)s).",
     )
+    parser.add_argument(
+        "--response",
+        default=None,
+        help="Forward a non-interactive answer to fetch.py dataset selection prompts.",
+    )
 
     raw_argv = sys.argv[1:]
     args = parser.parse_args()
@@ -354,26 +529,45 @@ if __name__ == "__main__":
         if args.debug:
             print(f"======{wf} in {args.scheme}=====")
         overwrite = "--overwrite" if args.overwrite else ""
-        ## creating dataset
-        if (
-            not os.path.exists(
-                f"metadata/{args.campaign}/MC_{args.campaign}_{args.year}_{workflow_tag}.json"
+        response_opt = (
+            f"--response {shlex.quote(str(args.response))}"
+            if args.response is not None
+            else ""
+        )
+        sample_types_to_submit = list(predefined_sample[workflow_tag].keys())
+        if use_condor:
+            sample_types_to_submit, skipped_existing_jobs = get_condor_sample_plan(
+                args, wf, workflow_tag, allowed_sample_types
             )
-            or args.overwrite
-        ):
-            if args.debug:
+            for sample_type, job_dir in skipped_existing_jobs:
                 print(
-                    f"Creating MC dataset: python scripts/fetch.py -c {args.campaign} --from_workflow {workflow_tag} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --executor futures"
+                    f"⚠️ Condor job directory already exists for {wf}/{sample_type}: {job_dir}. "
+                    "Skipping this job and moving on."
                 )
-
-            os.system(
-                f"python scripts/fetch.py -c {args.campaign} --from_workflow {workflow_tag} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --executor futures"
+            if not sample_types_to_submit:
+                print(
+                    f"⚠️ All condor job directories already exist for workflow '{wf}'. "
+                    "Skipping fetch and submission for this workflow."
+                )
+                continue
+        ## create or refresh datasets once before any submissions for this workflow
+        if args.debug:
+            print(
+                f"Checking workflow datasets for {wf}: python scripts/fetch.py -c {args.campaign} --from_workflow {workflow_tag} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --overwrite --executor futures -j {args.workers} {response_opt}"
             )
-            if args.debug:
-                os.system(f"ls metadata/{args.campaign}/*.json")
+        should_refresh_workflow_datasets(
+            args,
+            workflow_tag,
+            allowed_sample_types,
+            response_opt,
+            overwrite,
+            sample_types=sample_types_to_submit,
+        )
+        if args.debug:
+            os.system(f"ls metadata/{args.campaign}/*.json")
 
         ## Run the workflows
-        for types in predefined_sample[workflow_tag].keys():
+        for types in sample_types_to_submit:
             if allowed_sample_types is not None and types not in allowed_sample_types:
                 if args.debug:
                     print(
@@ -410,11 +604,8 @@ if __name__ == "__main__":
                     )
                 json_file = f"metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{workflow_tag}.json"
 
-                # Check if dataset needs refreshing because of age
-                if should_refresh_dataset(json_file):
-                    print(f"Refreshing dataset: {json_file}")
-                    fetch_cmd = f"python scripts/fetch.py -c {args.campaign} --from_workflow {workflow_tag} --DAS_campaign {args.DAS_campaign} --year {args.year} {overwrite} --skipvalidation --overwrite --executor futures"
-                    os.system(fetch_cmd)
+                if use_condor and condor_submit_count == 0:
+                    run_local_smoke_test(args, wf, json_file, types)
 
                 json_path = f"metadata/{args.campaign}/{types}_{args.campaign}_{args.year}_{workflow_tag}.json"
                 base_command = (
@@ -485,7 +676,7 @@ if __name__ == "__main__":
                     command.extend(
                         [
                             "--jobName",
-                            get_condor_job_name(args, wf, types),
+                            get_condor_submission_name(args, wf, types),
                             "--outputDir",
                             get_condor_output_dir(args, wf, types),
                             "--condorFileSize",

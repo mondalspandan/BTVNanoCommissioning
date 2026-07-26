@@ -88,6 +88,15 @@ if len(toresubmit) == 0:
     print(f"[yellow]python condor_lxplus/haddoutputs.py {outdir}[/]")
     exit()
 
+if len(toresubmit) == len(numlist):
+    warning = (
+        "All checked jobs failed; skipping condor resubmission because this likely "
+        "indicates a code/config bug."
+    )
+    job_dashboard.record_automation_blocked(jobdir, warning)
+    print(f"[red][b]WARNING:[/] {warning}[/]")
+    exit(1)
+
 if updatexrootd:
     with open(f"{jobdir}/split_samples.json") as f:
         samples = json.load(f)
