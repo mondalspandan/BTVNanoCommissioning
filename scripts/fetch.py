@@ -2069,9 +2069,7 @@ def main(args):
                 f"Processing {len(fset)} unique datasets with futures executor (workers={args.j})"
             )
 
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=args.j
-            ) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.j) as executor:
                 # Create a mapping of futures to datasets
                 future_to_dataset = {}
                 for dataset in fset:

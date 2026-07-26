@@ -20,7 +20,9 @@ def make_tarfile(output_filename, source_dir, exclude_dirs=[]):
                     dirs[:] = [d for d in dirs if d not in exclude_dirs]
                     for file in files:
                         file_path = os.path.join(root, file)
-                        tar.add(file_path, arcname=os.path.relpath(file_path, source_dir))
+                        tar.add(
+                            file_path, arcname=os.path.relpath(file_path, source_dir)
+                        )
             else:
                 # Add top-level files
                 tar.add(item_path, arcname=item)
@@ -94,7 +96,9 @@ def prompt_rebuild_tarball():
 
 
 def submit_condor_with_retry(submit_jdl_path, retry_delay_seconds=30):
-    success_pattern = re.compile(r"\b\d+\s+job\(s\)\s+submitted to cluster\b", re.IGNORECASE)
+    success_pattern = re.compile(
+        r"\b\d+\s+job\(s\)\s+submitted to cluster\b", re.IGNORECASE
+    )
     attempt = 1
     while True:
         result = subprocess.run(

@@ -92,7 +92,9 @@ def _stage_entry(stage: str, summary: str = "", detail: str = "") -> dict:
 def _default_status(job_dir: str, job_name: str = "", output_dir: str = "") -> dict:
     return {
         "job_dir": os.path.abspath(job_dir) if job_dir else "",
-        "job_name": job_name or os.path.basename(os.path.abspath(job_dir)) if job_dir else "",
+        "job_name": (
+            job_name or os.path.basename(os.path.abspath(job_dir)) if job_dir else ""
+        ),
         "output_dir": os.path.abspath(output_dir) if output_dir else "",
         "created_at": "",
         "updated_at": "",
@@ -241,7 +243,11 @@ def _normalize_status_metadata(job_dir: str, data: dict) -> bool:
             data["submitted_jobs"] = len(job_ids)
             changed = True
         checked_outputs = data.get("checked_outputs")
-        if isinstance(checked_outputs, dict) and checked_outputs.get("checked_jobs") is None and job_ids:
+        if (
+            isinstance(checked_outputs, dict)
+            and checked_outputs.get("checked_jobs") is None
+            and job_ids
+        ):
             checked_outputs["checked_jobs"] = len(job_ids)
             changed = True
 
@@ -289,7 +295,7 @@ def _validate_automation_environment() -> None:
         "    try:\n"
         "        importlib.import_module(module)\n"
         "    except Exception as exc:\n"
-        "        missing.append({\"module\": module, \"error\": f\"{type(exc).__name__}: {exc}\"})\n"
+        '        missing.append({"module": module, "error": f"{type(exc).__name__}: {exc}"})\n'
         "print(json.dumps(missing))\n"
         "sys.exit(1 if missing else 0)\n"
     )
@@ -362,7 +368,9 @@ def _current_output_scan(job_dir: str, data: dict) -> tuple[int, int, list[str]]
         if not os.path.isfile(outfile):
             missing.append(job_id)
             continue
-        for rootfile in glob(os.path.join(output_dir, f"arrays_hists_{job_id}", "*", "*", "*.root")):
+        for rootfile in glob(
+            os.path.join(output_dir, f"arrays_hists_{job_id}", "*", "*", "*.root")
+        ):
             try:
                 if os.path.getsize(rootfile) < 10 * 1024:
                     missing.append(job_id)
@@ -421,14 +429,24 @@ def _resume_blocked_automation(job_dir: str, data: dict) -> bool:
         auto["processed_hadd_clusters"] = []
         data["all_done"] = False
 
-    _append_stage(data, "Automation resumed", "Retrying blocked automation", auto.get("last_action", ""))
+    _append_stage(
+        data,
+        "Automation resumed",
+        "Retrying blocked automation",
+        auto.get("last_action", ""),
+    )
     save_status(job_dir, data)
     return True
 
 
-def _resume_stale_checkoutputs(job_dir: str, data: dict, condor_status: dict | None) -> bool:
+def _resume_stale_checkoutputs(
+    job_dir: str, data: dict, condor_status: dict | None
+) -> bool:
     auto = _automation(data)
-    if auto.get("step") != "waiting" or str(auto.get("last_action") or "") != "checkoutputs":
+    if (
+        auto.get("step") != "waiting"
+        or str(auto.get("last_action") or "") != "checkoutputs"
+    ):
         return False
 
     checked = data.get("checked_outputs", {})
@@ -629,7 +647,9 @@ def record_processing_complete(job_dir: str, summary: str = "All done") -> dict:
     return data
 
 
-def record_submission(job_dir: str, total_jobs: int, job_name: str = "", output_dir: str = "") -> dict:
+def record_submission(
+    job_dir: str, total_jobs: int, job_name: str = "", output_dir: str = ""
+) -> dict:
     data = ensure_status(job_dir, job_name=job_name, output_dir=output_dir)
     data["submitted_jobs"] = int(total_jobs)
     _append_stage(data, "Submitted", f"{total_jobs} jobs", "")
@@ -645,7 +665,9 @@ def record_checked_outputs(
 ) -> dict:
     data = load_status(job_dir)
     data["checked_outputs"] = {
-        "status": "All jobs done" if missing_jobs == 0 else f"{missing_jobs} outputs missing",
+        "status": (
+            "All jobs done" if missing_jobs == 0 else f"{missing_jobs} outputs missing"
+        ),
         "missing_outputs": int(missing_jobs),
         "checked_jobs": int(checked_jobs),
         "job_ids": list(job_ids or []),
@@ -656,7 +678,9 @@ def record_checked_outputs(
         "pending_reset": False,
     }
     if missing_jobs == 0:
-        _append_stage(data, "Checked outputs", "All jobs done", f"{checked_jobs} jobs checked")
+        _append_stage(
+            data, "Checked outputs", "All jobs done", f"{checked_jobs} jobs checked"
+        )
     else:
         _append_stage(
             data,
@@ -717,7 +741,9 @@ def record_hadd_checked(job_dir: str, checked_jobs: int, failed_jobs: int) -> di
     return data
 
 
-def find_job_dir_by_output(output_dir: str, search_root: str | None = None) -> str | None:
+def find_job_dir_by_output(
+    output_dir: str, search_root: str | None = None
+) -> str | None:
     target = os.path.abspath(output_dir)
     module_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     roots = [search_root] if search_root else [os.getcwd(), module_root]
@@ -796,7 +822,9 @@ def _job_title(data: dict) -> str:
     return str(name)
 
 
-def _job_progress_rank(data: dict, condor: dict | None, hadd_condor: dict | None) -> tuple[int, int, str]:
+def _job_progress_rank(
+    data: dict, condor: dict | None, hadd_condor: dict | None
+) -> tuple[int, int, str]:
     title = _job_title(data).lower()
 
     if data.get("all_done"):
@@ -813,13 +841,20 @@ def _job_progress_rank(data: dict, condor: dict | None, hadd_condor: dict | None
     blocked_reason = str(auto.get("blocked_reason") or "")
     blocked_action = _blocked_automation_action(data)
 
-    if data.get("submitted_jobs") is None and not checked_status and hadd_submitted is None:
+    if (
+        data.get("submitted_jobs") is None
+        and not checked_status
+        and hadd_submitted is None
+    ):
         return (0, 0, title)
 
     if checked_status == "All jobs done" or missing_outputs == 0:
         if _is_array_job(data.get("job_dir", ""), data) and hadd_submitted is None:
             return (3, 0, title)
-        if _is_array_job(data.get("job_dir", ""), data) and hadd_checked_status != "All done":
+        if (
+            _is_array_job(data.get("job_dir", ""), data)
+            and hadd_checked_status != "All done"
+        ):
             return (4, 0, title)
         return (2, 0, title)
 
@@ -837,9 +872,15 @@ def _job_progress_rank(data: dict, condor: dict | None, hadd_condor: dict | None
         return (0, 1, title)
 
     if blocked_reason:
-        if blocked_action == "checkoutputs" or "All checked jobs failed" in blocked_reason:
+        if (
+            blocked_action == "checkoutputs"
+            or "All checked jobs failed" in blocked_reason
+        ):
             return (2, 1, title)
-        if blocked_action in {"hadd_submit", "hadd_check"} or "hadd" in blocked_reason.lower():
+        if (
+            blocked_action in {"hadd_submit", "hadd_check"}
+            or "hadd" in blocked_reason.lower()
+        ):
             return (4, 1, title)
         return (2, 1, title)
 
@@ -892,7 +933,11 @@ def _stage_summary(data: dict) -> str:
     auto = _automation(data)
     if auto.get("blocked_reason"):
         pieces.append(f"{ICONS['warn']} Blocked: {auto['blocked_reason']}")
-    return f" {ICONS['clock']} " + "  →  ".join(pieces) if pieces else f"{ICONS['clock']} No status yet"
+    return (
+        f" {ICONS['clock']} " + "  →  ".join(pieces)
+        if pieces
+        else f"{ICONS['clock']} No status yet"
+    )
 
 
 def _latest_condor_cluster(log_dir: str, prefix: str = "job") -> int | None:
@@ -988,9 +1033,8 @@ def read_condor_status(
         resubmitted = data.get("resubmitted_jobs", {})
         resubmitted_count = resubmitted.get("count")
         submitted_jobs = data.get("submitted_jobs")
-        if (
-            (resubmitted_count and int(resubmitted_count) == total)
-            or (isinstance(submitted_jobs, int) and total < submitted_jobs)
+        if (resubmitted_count and int(resubmitted_count) == total) or (
+            isinstance(submitted_jobs, int) and total < submitted_jobs
         ):
             job_kind = "resubmission jobs"
     extras = []
@@ -1070,7 +1114,9 @@ def _run_automation_command(
         )
         save_status(job_dir, data)
         stdout, stderr = proc.communicate()
-        completed = subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+        completed = subprocess.CompletedProcess(
+            command, proc.returncode, stdout, stderr
+        )
         last_completed = completed
         data = load_status(job_dir)
         stdout = completed.stdout or ""
@@ -1091,17 +1137,19 @@ def _run_automation_command(
         checked = post_data.get("checked_outputs", {})
         hadd_checked = post_data.get("hadd_jobs_checked", {})
         action_completed_without_submit = (
-            action == "checkoutputs" and checked.get("status") == "All jobs done"
-        ) or (
-            action == "hadd_check" and hadd_checked.get("status") == "All done"
-        ) or (
-            action == "hadd_submit"
-            and (
-                post_data.get("all_done")
-                or hadd_checked.get("status") == "All done"
+            (action == "checkoutputs" and checked.get("status") == "All jobs done")
+            or (action == "hadd_check" and hadd_checked.get("status") == "All done")
+            or (
+                action == "hadd_submit"
+                and (
+                    post_data.get("all_done")
+                    or hadd_checked.get("status") == "All done"
+                )
             )
         )
-        action_blocked_without_submit = action == "checkoutputs" and _all_jobs_failed(post_data)
+        action_blocked_without_submit = action == "checkoutputs" and _all_jobs_failed(
+            post_data
+        )
         submit_ok = (
             (not expect_condor_submit)
             or bool(CONDOR_SUBMIT_RE.search(stdout))
@@ -1245,7 +1293,9 @@ def advance_job_automation(
     active_pid = _automation_active_pid(data)
     expected_fragment = str(auto.get("active_command") or "")
     if _automation_step_is_active(active_action, active_step):
-        script_name = "checkoutputs.py" if active_action == "checkoutputs" else "haddoutputs.py"
+        script_name = (
+            "checkoutputs.py" if active_action == "checkoutputs" else "haddoutputs.py"
+        )
         if active_pid is None:
             inferred_pid = _find_matching_automation_pid(job_dir, script_name)
             if inferred_pid is not None:
@@ -1253,7 +1303,9 @@ def advance_job_automation(
                 auto["active_command"] = auto.get("active_command") or script_name
                 save_status(job_dir, data)
                 active_pid = inferred_pid
-        if active_pid is not None and _process_alive(active_pid, expected_fragment=expected_fragment or script_name):
+        if active_pid is not None and _process_alive(
+            active_pid, expected_fragment=expected_fragment or script_name
+        ):
             return data
         return record_automation_blocked(
             job_dir,
@@ -1281,7 +1333,12 @@ def advance_job_automation(
                 expect_submit = True
                 return _run_automation_command(
                     job_dir,
-                    [sys.executable, _script_path("checkoutputs.py"), job_dir, "--condor"],
+                    [
+                        sys.executable,
+                        _script_path("checkoutputs.py"),
+                        job_dir,
+                        "--condor",
+                    ],
                     "checkoutputs",
                     expect_condor_submit=expect_submit,
                 )
@@ -1298,7 +1355,9 @@ def advance_job_automation(
         return data
 
     if not _is_array_job(job_dir, data):
-        return record_processing_complete(job_dir, "All non-array processing outputs done")
+        return record_processing_complete(
+            job_dir, "All non-array processing outputs done"
+        )
 
     output_dir = _output_dir(job_dir, data)
     if not _has_array_outputs(output_dir):
@@ -1433,7 +1492,11 @@ def _processing_cell(data: dict, condor: dict | None):
     checked = data.get("checked_outputs", {})
     submitted = _fmt_value(data.get("submitted_jobs"), "-")
     checked_status = checked.get("status") or "-"
-    checked_style = "green" if checked_status == "All jobs done" else "yellow" if checked_status != "-" else "cyan"
+    checked_style = (
+        "green"
+        if checked_status == "All jobs done"
+        else "yellow" if checked_status != "-" else "cyan"
+    )
     auto = _automation(data)
     lines = [
         Text(f"{ICONS['submit']} Submitted: {submitted}", style="green"),
@@ -1442,17 +1505,28 @@ def _processing_cell(data: dict, condor: dict | None):
     progress = _condor_progress(condor)
     if progress:
         lines.append(progress)
-    lines.append(Text(f"{ICONS['check']} Outputs: {checked_status}", style=checked_style))
+    lines.append(
+        Text(f"{ICONS['check']} Outputs: {checked_status}", style=checked_style)
+    )
     resub = data.get("resubmitted_jobs", {})
     if resub.get("count"):
-        lines.append(Text(f"{ICONS['resubmit']} Resubmitted: {resub['count']}", style="yellow"))
+        lines.append(
+            Text(f"{ICONS['resubmit']} Resubmitted: {resub['count']}", style="yellow")
+        )
     if auto.get("blocked_reason"):
-        lines.append(Text(f"{ICONS['warn']} {auto['blocked_reason']}", style="bold red"))
+        lines.append(
+            Text(f"{ICONS['warn']} {auto['blocked_reason']}", style="bold red")
+        )
         output_summary = _automation_output_summary(data)
         if output_summary:
             lines.append(Text(output_summary, style="dim red"))
     elif auto.get("last_action"):
-        lines.append(Text(f"{ICONS['info']} Auto: {auto.get('step') or auto['last_action']}", style="dim cyan"))
+        lines.append(
+            Text(
+                f"{ICONS['info']} Auto: {auto.get('step') or auto['last_action']}",
+                style="dim cyan",
+            )
+        )
     return Group(*lines)
 
 
@@ -1460,7 +1534,11 @@ def _hadd_cell(data: dict, hadd_condor: dict | None):
     hadd = data.get("hadd_jobs_checked", {})
     hadd_submitted = _fmt_value(data.get("hadd_jobs_submitted"), "-")
     hadd_checked = hadd.get("status") or "-"
-    hadd_style = "green" if data.get("all_done") else "yellow" if data.get("hadd_jobs_submitted") is not None else "cyan"
+    hadd_style = (
+        "green"
+        if data.get("all_done")
+        else "yellow" if data.get("hadd_jobs_submitted") is not None else "cyan"
+    )
     lines = [
         Text(f"{ICONS['hadd']} Submitted: {hadd_submitted}", style=hadd_style),
         _compact_condor_text(hadd_condor, "Condor"),
@@ -1525,7 +1603,9 @@ def _compact_hadd_value(data: dict, hadd_condor: dict | None) -> str:
     )
 
 
-def _build_detailed_table(rows: list[tuple[str, dict]], condor_known: dict, hadd_condor_known: dict):
+def _build_detailed_table(
+    rows: list[tuple[str, dict]], condor_known: dict, hadd_condor_known: dict
+):
     table = Table(box=box.SIMPLE_HEAVY, expand=True, show_lines=True)
     table.add_column("Job", style="bold", ratio=1, min_width=10, max_width=20)
     table.add_column("State", justify="center", ratio=1, max_width=13)
@@ -1537,9 +1617,8 @@ def _build_detailed_table(rows: list[tuple[str, dict]], condor_known: dict, hadd
         condor = condor_known.get(job_dir)
         hadd_condor = hadd_condor_known.get(job_dir)
         overall_state = _job_overall_state(data)
-        overall_label = (
-            f"{_state_icon(overall_state)} "
-            + ("All done" if data.get("all_done") else "In progress")
+        overall_label = f"{_state_icon(overall_state)} " + (
+            "All done" if data.get("all_done") else "In progress"
         )
         table.add_row(
             Text(_job_title(data), style="bold white"),
@@ -1574,9 +1653,17 @@ def _build_compact_table(
         state_label = "done" if data.get("all_done") else "active"
         table.add_row(
             Text(_job_title(data), style="bold white"),
-            Text(f"{_state_icon(overall_state)} {state_label}", style=_state_style(overall_state)),
-            Text(_compact_processing_value(data, condor_known.get(job_dir)), style="white"),
-            Text(_compact_hadd_value(data, hadd_condor_known.get(job_dir)), style="white"),
+            Text(
+                f"{_state_icon(overall_state)} {state_label}",
+                style=_state_style(overall_state),
+            ),
+            Text(
+                _compact_processing_value(data, condor_known.get(job_dir)),
+                style="white",
+            ),
+            Text(
+                _compact_hadd_value(data, hadd_condor_known.get(job_dir)), style="white"
+            ),
         )
     return table
 
@@ -1584,7 +1671,12 @@ def _build_compact_table(
 def _stage_history_line(stages: Counter):
     if not stages:
         return None
-    text = Text(f"{ICONS['info']} Stage history  ", style="bold cyan", no_wrap=True, overflow="ellipsis")
+    text = Text(
+        f"{ICONS['info']} Stage history  ",
+        style="bold cyan",
+        no_wrap=True,
+        overflow="ellipsis",
+    )
     for idx, (stage, count) in enumerate(stages.most_common()):
         if idx:
             text.append("  •  ", style="dim")
@@ -1606,7 +1698,9 @@ def _stage_label(stage: str, status: str) -> Text:
     return label
 
 
-def _progress_badge(label: str, value: str, state: str = "info", rich_markup: bool = True) -> str:
+def _progress_badge(
+    label: str, value: str, state: str = "info", rich_markup: bool = True
+) -> str:
     icon = _state_icon(state)
     if rich_markup and RICH_AVAILABLE:
         return f"[{_state_style(state)}]{icon} {label}:[/] {value}"
@@ -1634,7 +1728,9 @@ def build_dashboard(
     job_dirs = _job_dirs(root)
     if not job_dirs:
         if RICH_AVAILABLE:
-            return Panel.fit("[bold yellow]No job directories found.[/]", title="Dashboard")
+            return Panel.fit(
+                "[bold yellow]No job directories found.[/]", title="Dashboard"
+            )
         return "No job directories found."
 
     statuses = []
@@ -1715,7 +1811,9 @@ def build_dashboard(
             condor = condor_known.get(job_dir)
             hadd_condor = hadd_condor_known.get(job_dir)
             condor_value = condor.get("label") if condor else "checking..."
-            hadd_condor_value = hadd_condor.get("label") if hadd_condor else "checking..."
+            hadd_condor_value = (
+                hadd_condor.get("label") if hadd_condor else "checking..."
+            )
             overall_state = _job_overall_state(data)
             checked = data.get("checked_outputs", {})
             hadd = data.get("hadd_jobs_checked", {})
@@ -1736,21 +1834,23 @@ def build_dashboard(
             hadd_state = (
                 "done"
                 if data.get("all_done")
-                else "warn"
-                if data.get("hadd_jobs_submitted") is not None
-                else "info"
+                else "warn" if data.get("hadd_jobs_submitted") is not None else "info"
             )
             lines.append(
                 f"  {_progress_badge('Hadd', hadd_value, hadd_state, rich_markup=False)}"
             )
             auto = _automation(data)
             if auto.get("blocked_reason"):
-                lines.append(f"  {_progress_badge('Automation', auto['blocked_reason'], 'error', rich_markup=False)}")
+                lines.append(
+                    f"  {_progress_badge('Automation', auto['blocked_reason'], 'error', rich_markup=False)}"
+                )
                 output_summary = _automation_output_summary(data)
                 if output_summary:
                     lines.append(f"    {output_summary}")
             elif auto.get("last_action"):
-                lines.append(f"  {_progress_badge('Automation', auto.get('step') or auto['last_action'], 'info', rich_markup=False)}")
+                lines.append(
+                    f"  {_progress_badge('Automation', auto.get('step') or auto['last_action'], 'info', rich_markup=False)}"
+                )
             lines.append(f"  Timeline: {_stage_summary(data)}")
         if stages:
             pieces = []
@@ -1765,13 +1865,19 @@ def build_dashboard(
     header_text.append(
         f"{ICONS['submit']} Submitted: {submitted}/{total}   ", style="green"
     )
-    header_text.append(f"{ICONS['check']} Checked done: {checked_done}   ", style="cyan")
+    header_text.append(
+        f"{ICONS['check']} Checked done: {checked_done}   ", style="cyan"
+    )
     header_text.append(
         f"{ICONS['resubmit']} Resubmitted: {resubmitted_pending}   ", style="yellow"
     )
-    header_text.append(f"{ICONS['hadd']} Hadd submitted: {hadd_submitted}   ", style="magenta")
+    header_text.append(
+        f"{ICONS['hadd']} Hadd submitted: {hadd_submitted}   ", style="magenta"
+    )
     header_text.append(f"{ICONS['done']} All done: {all_done}   ", style="bold green")
-    header_text.append(f"{ICONS['warn']} Blocked: {automation_blocked}\n", style="bold red")
+    header_text.append(
+        f"{ICONS['warn']} Blocked: {automation_blocked}\n", style="bold red"
+    )
     header_text.append(
         f"{ICONS['clock']} Condor live: {condor_done} complete, {condor_running} running, {condor_unsubmitted} unsubmitted/logless",
         style="cyan",
@@ -1795,14 +1901,22 @@ def build_dashboard(
     available_rows = max(8, height - 11)
     detailed_rows = 6
     compact_rows = 1
-    active_statuses = [(job_dir, data) for job_dir, data in statuses if not data.get("all_done")]
-    done_statuses = [(job_dir, data) for job_dir, data in statuses if data.get("all_done")]
+    active_statuses = [
+        (job_dir, data) for job_dir, data in statuses if not data.get("all_done")
+    ]
+    done_statuses = [
+        (job_dir, data) for job_dir, data in statuses if data.get("all_done")
+    ]
     detail_estimate = len(statuses) * detailed_rows
-    mixed_estimate = len(done_statuses) * compact_rows + len(active_statuses) * detailed_rows + 4
+    mixed_estimate = (
+        len(done_statuses) * compact_rows + len(active_statuses) * detailed_rows + 4
+    )
     view_mode = "compact"
 
     if detail_estimate <= available_rows:
-        renderables.append(_build_detailed_table(statuses, condor_known, hadd_condor_known))
+        renderables.append(
+            _build_detailed_table(statuses, condor_known, hadd_condor_known)
+        )
         view_mode = "detailed"
     elif active_statuses and mixed_estimate <= available_rows:
         if done_statuses:
@@ -1814,7 +1928,9 @@ def build_dashboard(
                     title=f"{ICONS['done']} Done jobs ({len(done_statuses)})",
                 )
             )
-        renderables.append(_build_detailed_table(active_statuses, condor_known, hadd_condor_known))
+        renderables.append(
+            _build_detailed_table(active_statuses, condor_known, hadd_condor_known)
+        )
         view_mode = "mixed"
     else:
         renderables.append(
@@ -2005,7 +2121,9 @@ def main() -> None:
             raise SystemExit(1)
         resumed = resume_blocked_automation_jobs(args.root)
         if resumed:
-            print(f"[green]Resumed {resumed} blocked automation job(s) after startup recheck.[/]")
+            print(
+                f"[green]Resumed {resumed} blocked automation job(s) after startup recheck.[/]"
+            )
     if args.once:
         job_dirs = _job_dirs(args.root)
         condor_statuses = {

@@ -11,7 +11,6 @@ sys.path.insert(0, parent_dir)
 from runner import config_parser, scaleout_parser, debug_parser
 from condor.submitter import get_condor_submitter_parser, validate_x509_proxy
 
-
 CONDOR_TRIGGER_ARGS = {
     "--jobqueue",
     "--jobName",
@@ -37,7 +36,9 @@ def get_condor_submission_name(args, workflow, sample_type):
 
 
 def get_condor_output_dir(args, workflow, sample_type):
-    return os.path.join(args.condorOutputBase, f"{workflow}_{sample_type}{args.version}")
+    return os.path.join(
+        args.condorOutputBase, f"{workflow}_{sample_type}{args.version}"
+    )
 
 
 def get_condor_file_size(args, sample_type, condor_file_size_override):
@@ -127,9 +128,7 @@ def should_refresh_dataset(json_file, max_age_minutes=10):
 
 
 def workflow_sample_json_path(args, workflow_tag, sample_type):
-    return (
-        f"metadata/{args.campaign}/{sample_type}_{args.campaign}_{args.year}_{workflow_tag}.json"
-    )
+    return f"metadata/{args.campaign}/{sample_type}_{args.campaign}_{args.year}_{workflow_tag}.json"
 
 
 def should_refresh_workflow_datasets(
@@ -145,7 +144,9 @@ def should_refresh_workflow_datasets(
     checked_any = False
 
     candidate_sample_types = (
-        sample_types if sample_types is not None else predefined_sample[workflow_tag].keys()
+        sample_types
+        if sample_types is not None
+        else predefined_sample[workflow_tag].keys()
     )
 
     for sample_type in candidate_sample_types:
@@ -249,7 +250,9 @@ def run_local_smoke_test(args, wf, json_path, sample_type):
     print(f"🔎 Local command: {' '.join(shlex.quote(part) for part in command)}")
     result = subprocess.run(command)
 
-    coffea_files = glob.glob(os.path.join(test_outputdir, "**", "*.coffea"), recursive=True)
+    coffea_files = glob.glob(
+        os.path.join(test_outputdir, "**", "*.coffea"), recursive=True
+    )
     root_files = glob.glob(os.path.join(test_outputdir, "**", "*.root"), recursive=True)
 
     if result.returncode != 0:
@@ -486,13 +489,11 @@ if __name__ == "__main__":
             missing_cfm_flags.append("--isSyst all_withJESTotal")
         if missing_cfm_flags:
             print(
-                "⚠️ CFM usually expects "
-                + ", ".join(missing_cfm_flags)
-                + " to be set."
+                "⚠️ CFM usually expects " + ", ".join(missing_cfm_flags) + " to be set."
             )
-            response = input(
-                "Proceed with the CFM bundle anyway? [y/N]: "
-            ).strip().lower()
+            response = (
+                input("Proceed with the CFM bundle anyway? [y/N]: ").strip().lower()
+            )
             if response not in {"y", "yes"}:
                 print("Aborting CFM submission at user request.")
                 sys.exit(1)
@@ -570,9 +571,7 @@ if __name__ == "__main__":
         for types in sample_types_to_submit:
             if allowed_sample_types is not None and types not in allowed_sample_types:
                 if args.debug:
-                    print(
-                        f"⚠️ Skipping sample type '{types}' for CFM workflow '{wf}'"
-                    )
+                    print(f"⚠️ Skipping sample type '{types}' for CFM workflow '{wf}'")
                 continue
 
             if should_skip_mc_family(types, args.mc):
@@ -613,19 +612,16 @@ if __name__ == "__main__":
                     if use_condor
                     else [sys.executable, "runner.py"]
                 )
-                command = (
-                    base_command
-                    + [
-                        "--wf",
-                        wf,
-                        "--json",
-                        json_path,
-                        "--campaign",
-                        args.campaign,
-                        "--year",
-                        str(args.year),
-                    ]
-                )
+                command = base_command + [
+                    "--wf",
+                    wf,
+                    "--json",
+                    json_path,
+                    "--campaign",
+                    args.campaign,
+                    "--year",
+                    str(args.year),
+                ]
                 limit_added = False  # Track if we've already added a limit flag
 
                 for key, value in vars(args).items():
@@ -711,7 +707,9 @@ if __name__ == "__main__":
             print(f"workflow is finished for {wf}!")
 
         if use_condor:
-            print(f"Condor submissions finished for {wf}; skipping local lumi and plotting.")
+            print(
+                f"Condor submissions finished for {wf}; skipping local lumi and plotting."
+            )
             continue
 
         if is_running_in_ci():

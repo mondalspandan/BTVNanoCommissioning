@@ -29,7 +29,9 @@ input_path = os.path.abspath(args.input)
 jobdir = None
 outputdir = input_path
 
-if os.path.isdir(input_path) and os.path.basename(input_path).startswith(("jobs_", "job_")):
+if os.path.isdir(input_path) and os.path.basename(input_path).startswith(
+    ("jobs_", "job_")
+):
     jobdir = input_path
     status = job_dashboard.load_status(jobdir, create=False)
     outputdir = status.get("output_dir") or ""
