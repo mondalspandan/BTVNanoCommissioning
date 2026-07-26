@@ -294,7 +294,7 @@ class NanoProcessor(processor.ProcessorABC):
         pruned_ev["dilep", "mass"] = pruned_ev.dilep.mass
         pruned_ev["njet"] = ak.count(event_jet[event_level].pt, axis=1)
 
-        add_canonical_met(pruned_ev, self._campaign)
+        add_canonical_met(pruned_ev, self._campaign, self._year)
 
         # Dijet properties
         two_jets_mask = ak.num(pruned_ev.SelJet) >= 2

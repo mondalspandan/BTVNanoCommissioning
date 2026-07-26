@@ -298,7 +298,7 @@ class NanoProcessor(processor.ProcessorABC):
             },
             with_name="PtEtaPhiMLorentzVector",
         )
-        met_collection = canonical_met_collection(events, self._campaign)
+        met_collection = canonical_met_collection(events, self._campaign, self._year)
         MET = ak.zip(
             {
                 "pt": met_collection.pt,
@@ -406,7 +406,7 @@ class NanoProcessor(processor.ProcessorABC):
         else:
             pruned_ev["osss"] = 1.0
         pruned_ev["njet"] = njet
-        add_canonical_met(pruned_ev, self._campaign)
+        add_canonical_met(pruned_ev, self._campaign, self._year)
         pruned_ev["W_transmass"] = wm
         pruned_ev["W_pt"] = wp
         pruned_ev["W_eta"] = sw.eta

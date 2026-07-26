@@ -11,7 +11,10 @@ sys.path.insert(0, parent_dir)
 from runner import config_parser, scaleout_parser, debug_parser
 from condor.submitter import get_condor_submitter_parser, validate_x509_proxy
 
-CONDOR_TRIGGER_ARGS = {
+CONDOR_ONLY_ARGS = {
+    "--condorOutputBase",
+    "--datafiles",
+    "--mcfiles",
     "--jobqueue",
     "--jobName",
     "--outputDir",
@@ -20,15 +23,20 @@ CONDOR_TRIGGER_ARGS = {
     "-nCPU",
     "--condorFileSize",
     "-n",
+    "--reuseTarball",
+    "--rebuildTarball",
+    "--submitRetries",
 }
 
 
-def condor_mode_requested(argv):
-    for arg in argv:
-        option = arg.split("=", 1)[0]
-        if option in CONDOR_TRIGGER_ARGS:
-            return True
-    return False
+def requested_condor_only_options(argv):
+    return sorted(
+        {
+            arg.split("=", 1)[0]
+            for arg in argv
+            if arg.split("=", 1)[0] in CONDOR_ONLY_ARGS
+        }
+    )
 
 
 def get_condor_submission_name(args, workflow, sample_type):
@@ -70,6 +78,7 @@ RUNNER_SKIP_KEYS = {
     "scheme",
     "DAS_campaign",
     "version",
+    "condor",
     "local",
     "debug",
     "limit_MC",
@@ -346,7 +355,10 @@ def get_lumi_from_web(year):
 
 
 ### Manage workflow in one script
-# EXAMPLE: python scripts/suball.py --scheme default_comissioning --campaign Summer23  --DAS_campaign "*Run2023D*Sep2023*,*Run3Summer23BPixNanoAODv12-130X*" --year 2023
+# Local example:
+# python scripts/suball.py --scheme default_comissioning --campaign Summer23 --DAS_campaign "*Run2023D*Sep2023*,*Run3Summer23BPixNanoAODv12-130X*" --year 2023
+# Condor example:
+# python scripts/suball.py --condor --condorOutputBase /eos/path --scheme CFM --campaign Summer23 --DAS_campaign "*Run2023D*,*Run3Summer23*" --year 2023
 # prerequest a new campaign should create a entry in AK4_parameters.py
 #############     #############      ##########     ########
 #  dataset  #     #   Run     #      #  Dump  #     #      #
@@ -359,6 +371,14 @@ if __name__ == "__main__":
     paser = scaleout_parser(parser)
     paser = debug_parser(parser)
     parser = get_condor_submitter_parser(parser, require_job_args=False)
+    parser.add_argument(
+        "--condor",
+        action="store_true",
+        help=(
+            "Submit workflows through HTCondor. Requires --condorOutputBase. "
+            "Without this flag, suball runs locally and rejects Condor-only options."
+        ),
+    )
     parser.add_argument(
         "-sc",
         "--scheme",
@@ -411,7 +431,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--condorOutputBase",
         default=None,
-        help="Base output directory used by suball when Condor mode is enabled.",
+        help="Required base output directory for --condor submissions.",
     )
     parser.add_argument(
         "--datafiles",
@@ -433,17 +453,25 @@ if __name__ == "__main__":
 
     raw_argv = sys.argv[1:]
     args = parser.parse_args()
-    use_condor = condor_mode_requested(raw_argv)
+    use_condor = args.condor
+    requested_condor_options = requested_condor_only_options(raw_argv)
     condor_file_size_override = any(
         arg.split("=", 1)[0] in {"--condorFileSize", "-n"} for arg in raw_argv
     )
 
-    if use_condor and args.condorOutputBase is None:
-        raise SystemExit(
-            "Condor mode requires --condorOutputBase.\n"
+    if not use_condor and requested_condor_options:
+        parser.error(
+            "Condor-only option(s) require --condor: "
+            + ", ".join(requested_condor_options)
+        )
+
+    if use_condor and not args.condorOutputBase:
+        parser.error(
+            "--condor requires --condorOutputBase.\n"
             "Example:\n"
-            f"  {sys.executable} scripts/suball.py --scheme CFM --campaign {args.campaign} "
-            f"--year {args.year} --DAS_campaign '{args.DAS_campaign}' --jobqueue workday "
+            f"  {sys.executable} scripts/suball.py --condor --scheme CFM "
+            f"--campaign {args.campaign} --year {args.year} "
+            f"--DAS_campaign '{args.DAS_campaign}' --jobqueue workday "
             "--condorOutputBase /eos/path --isArray --skipbadfiles"
         )
 

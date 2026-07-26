@@ -144,8 +144,10 @@ def _default_status(job_dir: str, job_name: str = "", output_dir: str = "") -> d
             "active_command": "",
             "warnings": [],
             "blocked_reason": "",
+            "blocked_state": "",
             "processed_job_clusters": [],
             "processed_hadd_clusters": [],
+            "unreconciled_submission": None,
         },
         "stages_passed": [],
     }
@@ -402,10 +404,13 @@ def _resume_blocked_automation(job_dir: str, data: dict) -> bool:
     auto = _automation(data)
     if auto.get("step") != "blocked" or not auto.get("blocked_reason"):
         return False
+    if auto.get("unreconciled_submission"):
+        return False
 
     if data.get("all_done"):
         auto["step"] = "done"
         auto["blocked_reason"] = ""
+        auto["blocked_state"] = ""
         auto["last_action_at"] = _now_iso()
         auto["active_pid"] = None
         auto["active_command"] = ""
@@ -432,6 +437,7 @@ def _resume_blocked_automation(job_dir: str, data: dict) -> bool:
 
     auto["step"] = "waiting"
     auto["blocked_reason"] = ""
+    auto["blocked_state"] = ""
     auto["last_action_at"] = _now_iso()
     auto["active_pid"] = None
     auto["active_command"] = ""
@@ -642,6 +648,7 @@ def record_automation_blocked(job_dir: str, reason: str) -> dict:
     auto = _automation(data)
     auto["step"] = "blocked"
     auto["blocked_reason"] = reason
+    auto["blocked_state"] = ""
     auto["active_pid"] = None
     auto["active_command"] = ""
     _add_automation_warning(data, reason)
@@ -656,6 +663,7 @@ def record_processing_complete(job_dir: str, summary: str = "All done") -> dict:
     auto = _automation(data)
     auto["step"] = "done"
     auto["blocked_reason"] = ""
+    auto["blocked_state"] = ""
     auto["active_pid"] = None
     auto["active_command"] = ""
     _append_stage(data, "All done", summary, "")
@@ -1132,6 +1140,72 @@ def _script_path(script_name: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), script_name)
 
 
+def _submission_status_recorded(data: dict, action: str, submission: dict) -> bool:
+    expected_count = submission["count"]
+    expected_cluster = submission["cluster_id"]
+    if action == "checkoutputs":
+        recorded = data.get("resubmitted_jobs", {})
+        return (
+            recorded.get("count") == expected_count
+            and recorded.get("cluster_id") == expected_cluster
+        )
+    if action in {"hadd_submit", "hadd_check"}:
+        return (
+            data.get("hadd_jobs_submitted") == expected_count
+            and data.get("hadd_submission_cluster_id") == expected_cluster
+        )
+    return False
+
+
+def _record_unreconciled_submission(
+    job_dir: str,
+    data: dict,
+    action: str,
+    submission: dict,
+    completed: subprocess.CompletedProcess,
+) -> dict:
+    cluster_id = submission["cluster_id"]
+    submitted_jobs = submission["count"]
+    state = "submitted_but_status_update_failed"
+    reason = (
+        f"Condor submitted {submitted_jobs} job(s) to cluster {cluster_id}, but "
+        "the submission status was not persisted. The submission command will not "
+        "be retried; reconcile this cluster before resuming automation."
+    )
+    auto = _automation(data)
+    auto["step"] = "blocked"
+    auto["blocked_reason"] = reason
+    auto["blocked_state"] = state
+    auto["active_pid"] = None
+    auto["active_command"] = ""
+    auto["unreconciled_submission"] = {
+        "state": state,
+        "action": action,
+        "cluster_id": cluster_id,
+        "submitted_jobs": submitted_jobs,
+        "detected_at": _now_iso(),
+    }
+    _add_automation_warning(data, reason)
+    _set_automation_action(
+        data,
+        action,
+        step="blocked",
+        returncode=completed.returncode,
+        stdout=completed.stdout or "",
+        stderr=completed.stderr or "",
+        active_pid=None,
+        active_command="",
+    )
+    _append_stage(
+        data,
+        "Automation blocked",
+        state,
+        f"{action}: cluster {cluster_id}, {submitted_jobs} jobs",
+    )
+    save_status(job_dir, data)
+    return data
+
+
 def _run_automation_command(
     job_dir: str,
     command: list[str],
@@ -1182,6 +1256,39 @@ def _run_automation_command(
         post_data = load_status(job_dir, create=False)
         checked = post_data.get("checked_outputs", {})
         hadd_checked = post_data.get("hadd_jobs_checked", {})
+        submission_output = "\n".join(part for part in (stdout, stderr) if part)
+        submission = (
+            parse_condor_submit_output(submission_output)
+            if expect_condor_submit
+            else None
+        )
+        if submission is not None:
+            if not _submission_status_recorded(post_data, action, submission):
+                return _record_unreconciled_submission(
+                    job_dir,
+                    post_data,
+                    action,
+                    submission,
+                    completed,
+                )
+            data = load_status(job_dir)
+            auto = _automation(data)
+            auto["blocked_reason"] = ""
+            auto["blocked_state"] = ""
+            auto["unreconciled_submission"] = None
+            _set_automation_action(
+                data,
+                action,
+                step=action,
+                returncode=completed.returncode,
+                stdout=stdout,
+                stderr=stderr,
+                active_pid=None,
+                active_command="",
+            )
+            save_status(job_dir, data)
+            return data
+
         action_completed_without_submit = (
             (action == "checkoutputs" and checked.get("status") == "All jobs done")
             or (action == "hadd_check" and hadd_checked.get("status") == "All done")
@@ -1198,7 +1305,6 @@ def _run_automation_command(
         )
         submit_ok = (
             (not expect_condor_submit)
-            or bool(CONDOR_SUBMIT_RE.search(stdout))
             or action_completed_without_submit
             or action_blocked_without_submit
         )
@@ -1207,6 +1313,7 @@ def _run_automation_command(
             if action_blocked_without_submit:
                 auto = _automation(data)
                 auto["step"] = "blocked"
+                auto["blocked_state"] = ""
                 auto["blocked_reason"] = (
                     "All checked jobs failed; skipping condor resubmission because this likely indicates a code/config bug."
                 )
@@ -1229,13 +1336,14 @@ def _run_automation_command(
     stderr = last_completed.stderr if last_completed else ""
     detail = (
         f"{action} failed after {attempts} attempt(s); "
-        "condor_submit confirmation was not found in stdout"
+        "condor_submit confirmation was not found in stdout or stderr"
         if expect_condor_submit
         else f"{action} failed after {attempts} attempt(s)"
     )
     data = load_status(job_dir)
     auto = _automation(data)
     auto["step"] = "blocked"
+    auto["blocked_state"] = ""
     auto["blocked_reason"] = detail
     _add_automation_warning(data, detail)
     _set_automation_action(
@@ -1317,7 +1425,9 @@ def _all_jobs_failed(data: dict) -> bool:
 
 def _automation_should_submit(data: dict, action: str) -> bool:
     auto = _automation(data)
-    if auto.get("step") == "blocked":
+    if auto.get("step") in {"blocked", "submitted_but_status_update_failed"}:
+        return False
+    if auto.get("unreconciled_submission"):
         return False
     last_action = auto.get("last_action")
     last_step = str(auto.get("step") or "")
@@ -1331,7 +1441,11 @@ def advance_job_automation(
 ) -> dict:
     data = load_status(job_dir, create=False)
     auto = _automation(data)
-    if data.get("all_done") or auto.get("step") == "blocked":
+    if (
+        data.get("all_done")
+        or auto.get("step") in {"blocked", "submitted_but_status_update_failed"}
+        or auto.get("unreconciled_submission")
+    ):
         return data
 
     active_step = str(auto.get("step") or "")

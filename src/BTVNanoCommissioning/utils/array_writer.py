@@ -3,22 +3,49 @@ import numpy as np
 import awkward as ak
 import os, uproot
 
-PUPPI_MET_CAMPAIGN_MARKERS = (
-    "Run3",
-    "Summer22",
-    "Summer23",
-    "Summer24",
-)
+MET_COLLECTION_BY_CAMPAIGN = {
+    "Rereco17_94X": "MET",
+    "2016preVFP-UL": "MET",
+    "2016postVFP-UL": "MET",
+    "2017-UL": "MET",
+    "2018-UL": "MET",
+    "Winter22Run3": "PuppiMET",
+    "Summer22": "PuppiMET",
+    "Summer22EE": "PuppiMET",
+    "Summer23": "PuppiMET",
+    "Summer23BPix": "PuppiMET",
+    "Summer24": "PuppiMET",
+    "Prompt25": "PuppiMET",
+}
+PROMPT_RUN2_YEARS = {"2016", "2016preVFP", "2016postVFP", "2017", "2018"}
+PROMPT_RUN3_YEARS = {"2022", "2023", "2024", "2025"}
 
 
-def canonical_met_collection(events, campaign):
-    if any(marker in campaign for marker in PUPPI_MET_CAMPAIGN_MARKERS):
-        return events.PuppiMET
-    return events.MET
+def canonical_met_name(campaign, year=None):
+    if campaign in MET_COLLECTION_BY_CAMPAIGN:
+        return MET_COLLECTION_BY_CAMPAIGN[campaign]
+    if campaign == "prompt_dataMC":
+        normalized_year = str(year).strip() if year is not None else ""
+        if normalized_year in PROMPT_RUN3_YEARS:
+            return "PuppiMET"
+        if normalized_year in PROMPT_RUN2_YEARS:
+            return "MET"
+        raise ValueError(
+            "Cannot classify MET for campaign 'prompt_dataMC' with year "
+            f"{year!r}; expected a supported Run 2 or Run 3 year."
+        )
+    raise ValueError(
+        f"Unknown MET campaign {campaign!r}; add it to MET_COLLECTION_BY_CAMPAIGN "
+        "before producing canonical MET branches."
+    )
 
 
-def add_canonical_met(events, campaign):
-    met = canonical_met_collection(events, campaign)
+def canonical_met_collection(events, campaign, year=None):
+    return events[canonical_met_name(campaign, year)]
+
+
+def add_canonical_met(events, campaign, year=None):
+    met = canonical_met_collection(events, campaign, year)
     events["MET_pt"] = met.pt
     events["MET_phi"] = met.phi
     return met
